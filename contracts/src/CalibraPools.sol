@@ -11,9 +11,11 @@ contract CalibraPools {
         uint64 revealDeadline;
         bytes32 flightListHash;
         bool finalized;
+        mapping(address => bytes32) commits;
+        mapping(address => bool) revealed;
     }
 
-    mapping(uint256 => Pool) public pools;
+    mapping(uint256 => Pool) private pools;
 
     event PoolCreated(uint256 poolId, address operator, uint256 bounty);
 
@@ -27,15 +29,23 @@ contract CalibraPools {
 
         poolId = nextPoolId++;
 
-        pools[poolId] = Pool({
-            operator: msg.sender,
-            bounty: msg.value,
-            commitDeadline: commitDeadline,
-            revealDeadline: revealDeadline,
-            flightListHash: flightListHash,
-            finalized: false
-        });
+        Pool storage pool = pools[poolId];
+        pool.operator = msg.sender;
+        pool.bounty = msg.value;
+        pool.commitDeadline = commitDeadline;
+        pool.revealDeadline = revealDeadline;
+        pool.flightListHash = flightListHash;
+        pool.finalized = false;
 
         emit PoolCreated(poolId, msg.sender, msg.value);
+    }
+
+    function commit(uint256 poolId, bytes32 commitHash) external {
+        Pool storage pool = pools[poolId];
+
+        require(block.timestamp <= pool.commitDeadline, "Commit phase over");
+        require(pool.commits[msg.sender] == bytes32(0), "Already committed");
+
+        pool.commits[msg.sender] = commitHash;
     }
 }
