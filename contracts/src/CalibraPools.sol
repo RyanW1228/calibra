@@ -19,6 +19,7 @@ contract CalibraPools {
 
     event PoolCreated(uint256 poolId, address operator, uint256 bounty);
     event Committed(uint256 poolId, address provider, bytes32 commitHash);
+    event Revealed(uint256 poolId, address provider, bytes32 predictionsHash);
 
     function createPool(
         uint64 commitDeadline,
@@ -49,6 +50,37 @@ contract CalibraPools {
 
         pool.commits[msg.sender] = commitHash;
         emit Committed(poolId, msg.sender, commitHash);
+    }
+
+    function reveal(
+        uint256 poolId,
+        bytes32 predictionsHash,
+        bytes32 salt
+    ) external {
+        Pool storage pool = pools[poolId];
+
+        require(block.timestamp > pool.commitDeadline, "Reveal not started");
+        require(block.timestamp <= pool.revealDeadline, "Reveal phase over");
+
+        bytes32 commitHash = pool.commits[msg.sender];
+        require(commitHash != bytes32(0), "No commit");
+        require(!pool.revealed[msg.sender], "Already revealed");
+
+        // Bind reveal to this pool, this provider, and this pool's flightListHash
+        bytes32 expected = keccak256(
+            abi.encodePacked(
+                poolId,
+                msg.sender,
+                pool.flightListHash,
+                predictionsHash,
+                salt
+            )
+        );
+        require(expected == commitHash, "Bad reveal");
+
+        pool.revealed[msg.sender] = true;
+
+        emit Revealed(poolId, msg.sender, predictionsHash);
     }
 
     function getPool(
