@@ -1,1 +1,3 @@
-contracts/.env
+.env.local
+.env
+.env.*
