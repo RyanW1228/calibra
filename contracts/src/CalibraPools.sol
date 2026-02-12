@@ -18,6 +18,7 @@ contract CalibraPools {
     mapping(uint256 => Pool) private pools;
 
     event PoolCreated(uint256 poolId, address operator, uint256 bounty);
+    event Committed(uint256 poolId, address provider, bytes32 commitHash);
 
     function createPool(
         uint64 commitDeadline,
@@ -47,5 +48,31 @@ contract CalibraPools {
         require(pool.commits[msg.sender] == bytes32(0), "Already committed");
 
         pool.commits[msg.sender] = commitHash;
+        emit Committed(poolId, msg.sender, commitHash);
+    }
+
+    function getPool(
+        uint256 poolId
+    )
+        external
+        view
+        returns (
+            address operator,
+            uint256 bounty,
+            uint64 commitDeadline,
+            uint64 revealDeadline,
+            bytes32 flightListHash,
+            bool finalized
+        )
+    {
+        Pool storage pool = pools[poolId];
+        return (
+            pool.operator,
+            pool.bounty,
+            pool.commitDeadline,
+            pool.revealDeadline,
+            pool.flightListHash,
+            pool.finalized
+        );
     }
 }
