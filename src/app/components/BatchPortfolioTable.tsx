@@ -22,16 +22,23 @@ export type BatchRow = {
   included: boolean;
 };
 
-function formatTime(iso?: string) {
+function formatTime(iso: string | undefined, timeZone: string) {
   if (!iso) return "—";
   const d = new Date(iso);
   if (Number.isNaN(d.getTime())) return iso;
-  return d.toLocaleString(undefined, {
-    month: "2-digit",
-    day: "2-digit",
-    hour: "2-digit",
-    minute: "2-digit",
-  });
+
+  try {
+    return new Intl.DateTimeFormat(undefined, {
+      timeZone,
+      month: "2-digit",
+      day: "2-digit",
+      hour: "2-digit",
+      minute: "2-digit",
+    }).format(d);
+  } catch {
+    // If timeZone is invalid for any reason, fall back to a stable representation
+    return d.toISOString();
+  }
 }
 
 function diffMinutes(aISO?: string, bISO?: string) {
@@ -49,7 +56,6 @@ function fmtMin(n?: number) {
 }
 
 function rowKey(x: BatchRow) {
-  // Prefer stable ID if present.
   if (x.id) return `id:${x.id}`;
   return [
     x.airline,
@@ -65,11 +71,13 @@ export default function BatchPortfolioTable({
   setRows,
   isLoading,
   error,
+  displayTimeZone,
 }: {
   rows: BatchRow[];
   setRows: React.Dispatch<React.SetStateAction<BatchRow[]>>;
   isLoading: boolean;
   error: string | null;
+  displayTimeZone: string;
 }) {
   const includedCount = useMemo(
     () => rows.reduce((acc, r) => acc + (r.included ? 1 : 0), 0),
@@ -97,6 +105,8 @@ export default function BatchPortfolioTable({
           </h2>
           <div className="mt-1 text-xs text-zinc-500 dark:text-zinc-400">
             Included: {includedCount} / {rows.length}
+            <span className="mx-2 text-zinc-300 dark:text-zinc-700">•</span>
+            TZ: <span className="font-mono">{displayTimeZone}</span>
           </div>
         </div>
 
@@ -204,20 +214,20 @@ export default function BatchPortfolioTable({
                     </td>
 
                     <td className="px-3 py-2">
-                      {formatTime(r.scheduledDepartISO)}
+                      {formatTime(r.scheduledDepartISO, displayTimeZone)}
                     </td>
                     <td className="px-3 py-2">
-                      {formatTime(r.actualDepartISO)}
+                      {formatTime(r.actualDepartISO, displayTimeZone)}
                     </td>
                     <td className="px-3 py-2 font-mono text-xs">
                       {fmtMin(depDeltaMin)}
                     </td>
 
                     <td className="px-3 py-2">
-                      {formatTime(r.scheduledArriveISO)}
+                      {formatTime(r.scheduledArriveISO, displayTimeZone)}
                     </td>
                     <td className="px-3 py-2">
-                      {formatTime(r.actualArriveISO)}
+                      {formatTime(r.actualArriveISO, displayTimeZone)}
                     </td>
                     <td className="px-3 py-2 font-mono text-xs">
                       {fmtMin(arrDelayMin)}

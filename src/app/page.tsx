@@ -1,7 +1,7 @@
 // app/page.tsx
 "use client";
 
-import React, { useState } from "react";
+import React, { useEffect, useMemo, useState } from "react";
 import Image from "next/image";
 import BatchPortfolioTable, {
   type BatchRow,
@@ -53,6 +53,41 @@ function normalize(s: string) {
   return s.trim().toUpperCase();
 }
 
+function useNowTick(refreshMs: number) {
+  const [now, setNow] = useState(() => new Date());
+  useEffect(() => {
+    const id = window.setInterval(() => setNow(new Date()), refreshMs);
+    return () => window.clearInterval(id);
+  }, [refreshMs]);
+  return now;
+}
+
+function formatClock(now: Date, timeZone: string) {
+  try {
+    // Compact, readable clock (no seconds flicker? keep seconds since you asked "clock")
+    return new Intl.DateTimeFormat(undefined, {
+      timeZone,
+      year: "numeric",
+      month: "2-digit",
+      day: "2-digit",
+      hour: "2-digit",
+      minute: "2-digit",
+      second: "2-digit",
+    }).format(now);
+  } catch {
+    // If an invalid TZ ever gets set, fail soft.
+    return now.toISOString();
+  }
+}
+
+const TIMEZONE_OPTIONS: Array<{ label: string; value: string }> = [
+  { label: "UTC", value: "UTC" },
+  { label: "New York (America/New_York)", value: "America/New_York" },
+  { label: "Denver (America/Denver)", value: "America/Denver" },
+  { label: "Los Angeles (America/Los_Angeles)", value: "America/Los_Angeles" },
+  { label: "London (Europe/London)", value: "Europe/London" },
+];
+
 export default function Home() {
   const [origin, setOrigin] = useState("DEN");
   const [destination, setDestination] = useState("JFK");
@@ -60,10 +95,19 @@ export default function Home() {
   const [airline, setAirline] = useState("");
   const [maxResults, setMaxResults] = useState(25);
 
+  // NEW: single display timezone
+  const [displayTimeZone, setDisplayTimeZone] = useState("UTC");
+
   const [isLoading, setIsLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
   const [batchRows, setBatchRows] = useState<BatchRow[]>([]);
+
+  const now = useNowTick(1000);
+  const nowLabel = useMemo(
+    () => formatClock(now, displayTimeZone),
+    [now, displayTimeZone],
+  );
 
   async function onSearch() {
     setIsLoading(true);
@@ -109,7 +153,6 @@ export default function Home() {
 
           const status = (f.status ?? "Scheduled").trim() || "Scheduled";
 
-          // Prefer the new scheduled/actual fields; fall back to old fields if present
           const scheduledDepartISO =
             f.scheduledDepartISO ?? f.departLocalISO ?? undefined;
           const scheduledArriveISO =
@@ -148,7 +191,6 @@ export default function Home() {
 
   return (
     <div className="flex min-h-screen items-center justify-center bg-zinc-50 font-sans dark:bg-black">
-      {/* widened from max-w-4xl -> max-w-7xl so the table fits */}
       <main className="w-full max-w-7xl px-6 py-12">
         <div className="rounded-2xl bg-white p-8 shadow-sm dark:bg-zinc-950">
           <div className="flex items-start justify-between gap-6">
@@ -175,10 +217,36 @@ export default function Home() {
                 Search flights and generate a normalized batch for downstream
                 processing.
               </p>
+
+              {/* NEW: timezone clock row */}
+              <div className="mt-1 flex flex-wrap items-center gap-3 text-xs text-zinc-500 dark:text-zinc-400">
+                <span>
+                  Now ({displayTimeZone}):{" "}
+                  <span className="font-mono">{nowLabel}</span>
+                </span>
+
+                <span className="text-zinc-300 dark:text-zinc-700">•</span>
+
+                <label className="flex items-center gap-2">
+                  <span>Display TZ</span>
+                  <select
+                    value={displayTimeZone}
+                    onChange={(e) => setDisplayTimeZone(e.target.value)}
+                    className="h-8 rounded-lg border border-zinc-200 bg-white px-2 text-xs text-zinc-900 outline-none focus:border-zinc-400 dark:border-zinc-800 dark:bg-zinc-950 dark:text-zinc-50"
+                  >
+                    {TIMEZONE_OPTIONS.map((tz) => (
+                      <option key={tz.value} value={tz.value}>
+                        {tz.label}
+                      </option>
+                    ))}
+                  </select>
+                </label>
+              </div>
             </div>
           </div>
 
           <div className="mt-8 grid grid-cols-1 gap-4 md:grid-cols-5">
+            {/* ... unchanged inputs ... */}
             <div className="md:col-span-1">
               <label className="block text-xs font-medium text-zinc-600 dark:text-zinc-400">
                 Origin (IATA, optional)
@@ -262,6 +330,7 @@ export default function Home() {
               setRows={setBatchRows}
               isLoading={isLoading}
               error={error}
+              displayTimeZone={displayTimeZone}
             />
           </div>
         </div>
