@@ -2,14 +2,15 @@
 import { NextResponse } from "next/server";
 
 type SearchBody = {
-  origin?: string | null; // optional (wildcard if blank)
-  destination?: string | null; // optional (wildcard if blank)
-  date: string; // YYYY-MM-DD
-  airline?: string | null; // legacy: single airline (IATA or ICAO)
-  airlines?: string[] | null; // new: multiple airlines
-  departStartHour?: number | null; // 0..23 (UTC hour, inclusive)
-  departEndHour?: number | null; // 0..23 (UTC hour, inclusive)
-  limit: number; // 1..200
+  origin?: string | null;
+  destination?: string | null;
+  dateStart: string;
+  dateEnd: string;
+  airline?: string | null;
+  airlines?: string[] | null;
+  departStartHour?: number | null;
+  departEndHour?: number | null;
+  limit: number;
 };
 
 type AeroApiSchedulesResponse = {
@@ -258,10 +259,35 @@ export async function POST(req: Request) {
     const origin = cleanAirportCode(body.origin);
     const destination = cleanAirportCode(body.destination);
 
-    const date = (body.date ?? "").trim();
-    if (!isValidYyyyMmDd(date)) {
+    const dateStart = (body.dateStart ?? "").trim();
+    const dateEnd = (body.dateEnd ?? "").trim();
+
+    if (!isValidYyyyMmDd(dateStart) || !isValidYyyyMmDd(dateEnd)) {
       return NextResponse.json(
-        { ok: false, error: "date must be YYYY-MM-DD" },
+        { ok: false, error: "dateStart/dateEnd must be YYYY-MM-DD" },
+        { status: 400 },
+      );
+    }
+
+    // enforce (dateEnd > dateStart) and max horizon <= 30 days
+    const startMs = Date.parse(`${dateStart}T00:00:00Z`);
+    const endMs = Date.parse(`${dateEnd}T00:00:00Z`);
+
+    if (
+      !Number.isFinite(startMs) ||
+      !Number.isFinite(endMs) ||
+      endMs <= startMs
+    ) {
+      return NextResponse.json(
+        { ok: false, error: "dateEnd must be after dateStart" },
+        { status: 400 },
+      );
+    }
+
+    const days = Math.ceil((endMs - startMs) / 86400000);
+    if (days > 30) {
+      return NextResponse.json(
+        { ok: false, error: "date range too large (max 30 days)" },
         { status: 400 },
       );
     }
@@ -290,9 +316,6 @@ export async function POST(req: Request) {
       const single = cleanAirlineCode(body.airline);
       if (single) airlines = [single];
     }
-
-    const dateStart = date;
-    const dateEnd = addDaysISO(date, 1);
 
     const maxPagesCapPerQuery = 5;
 

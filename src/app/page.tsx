@@ -89,11 +89,6 @@ export default function Home() {
     setError(null);
 
     try {
-      // For now, your backend only supports the legacy shape:
-      // { origin, destination, date, airlines, limit, departStartHour, departEndHour }
-      // So we down-compile schedule mode to a single-day query (dateStart) + single origin/destination.
-      //
-      // Next step (backend): accept dateStart/dateEnd, origins[], destinations[], departTimeWindow (tz-aware), etc.
       if (payloadV1.mode === "lookup") {
         setBatchRows([]);
         setError("Lookup mode isn’t wired to the backend yet.");
@@ -102,7 +97,8 @@ export default function Home() {
 
       const origin = (payloadV1.origins?.[0] ?? "").trim();
       const destination = (payloadV1.destinations?.[0] ?? "").trim();
-      const date = payloadV1.dateStart;
+      const dateStart = payloadV1.dateStart;
+      const dateEnd = payloadV1.dateEnd;
 
       // carriers[] -> airlines
       const airlines = Array.isArray(payloadV1.carriers)
@@ -112,7 +108,8 @@ export default function Home() {
       const payload = {
         origin: origin ? normalize(origin) : null,
         destination: destination ? normalize(destination) : null,
-        date,
+        dateStart,
+        dateEnd,
         airlines: airlines && airlines.length ? airlines.map(normalize) : null,
         limit: Math.max(1, Math.min(200, payloadV1.limit)),
       };
