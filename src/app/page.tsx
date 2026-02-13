@@ -1,11 +1,11 @@
-//app / page.tsx;
+// app/page.tsx
 "use client";
 
-import React, { useMemo, useState } from "react";
+import React, { useState } from "react";
 import Image from "next/image";
-import FlightBatchTable, {
-  type FlightBatchItem,
-} from "./components/FlightBatchTable";
+import BatchPortfolioTable, {
+  type BatchRow,
+} from "./components/BatchPortfolioTable";
 
 type FlightResult = {
   id?: string;
@@ -42,30 +42,6 @@ function normalize(s: string) {
   return s.trim().toUpperCase();
 }
 
-function buildBatch(flights: FlightResult[]): FlightBatchItem[] {
-  const items: Array<FlightBatchItem | null> = flights.map((f) => {
-    const airline = (f.airline ?? "").trim();
-    const flightNumber = (f.flightNumber ?? "").trim();
-    const origin = (f.origin ?? "").trim();
-    const destination = (f.destination ?? "").trim();
-
-    if (!airline || !flightNumber || !origin || !destination) return null;
-
-    const item: FlightBatchItem = {
-      airline,
-      flightNumber,
-      origin,
-      destination,
-    };
-
-    if (f.departLocalISO) item.departLocalISO = f.departLocalISO;
-
-    return item;
-  });
-
-  return items.filter((x): x is FlightBatchItem => x !== null);
-}
-
 export default function Home() {
   const [origin, setOrigin] = useState("DEN");
   const [destination, setDestination] = useState("JFK");
@@ -75,20 +51,25 @@ export default function Home() {
 
   const [isLoading, setIsLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
-  const [flights, setFlights] = useState<FlightResult[]>([]);
 
-  const batch = useMemo(() => buildBatch(flights), [flights]);
+  const [batchRows, setBatchRows] = useState<BatchRow[]>([]);
 
   async function onSearch() {
     setIsLoading(true);
     setError(null);
 
     try {
+      const airlineList = airline
+        .split(",")
+        .map((s) => s.trim())
+        .filter(Boolean)
+        .map(normalize);
+
       const payload = {
-        origin: normalize(origin),
-        destination: normalize(destination),
+        origin: origin.trim() ? normalize(origin) : null,
+        destination: destination.trim() ? normalize(destination) : null,
         date,
-        airline: airline.trim() ? normalize(airline) : null,
+        airlines: airlineList.length > 0 ? airlineList : null,
         limit: Math.max(1, Math.min(200, maxResults)),
       };
 
@@ -101,14 +82,39 @@ export default function Home() {
       const json = (await res.json()) as SearchResponse;
 
       if (!res.ok || !json.ok) {
-        setFlights([]);
+        setBatchRows([]);
         setError(json.ok ? "Unknown error" : json.error);
         return;
       }
 
-      setFlights(json.flights ?? []);
+      const nextRows: BatchRow[] = (json.flights ?? [])
+        .map((f) => {
+          const a = (f.airline ?? "").trim();
+          const n = (f.flightNumber ?? "").trim();
+          const o = (f.origin ?? "").trim();
+          const d = (f.destination ?? "").trim();
+
+          if (!a || !n || !o || !d) return null;
+
+          const status = (f.status ?? "Scheduled").trim() || "Scheduled";
+
+          const row: BatchRow = {
+            airline: a,
+            flightNumber: n,
+            origin: o,
+            destination: d,
+            departLocalISO: f.departLocalISO,
+            status,
+            included: true,
+          };
+
+          return row;
+        })
+        .filter((x): x is BatchRow => x !== null);
+
+      setBatchRows(nextRows);
     } catch (e: any) {
-      setFlights([]);
+      setBatchRows([]);
       setError(e?.message ?? "Request failed");
     } finally {
       setIsLoading(false);
@@ -149,7 +155,7 @@ export default function Home() {
           <div className="mt-8 grid grid-cols-1 gap-4 md:grid-cols-5">
             <div className="md:col-span-1">
               <label className="block text-xs font-medium text-zinc-600 dark:text-zinc-400">
-                Origin (IATA)
+                Origin (IATA, optional)
               </label>
               <input
                 value={origin}
@@ -161,7 +167,7 @@ export default function Home() {
 
             <div className="md:col-span-1">
               <label className="block text-xs font-medium text-zinc-600 dark:text-zinc-400">
-                Destination (IATA)
+                Destination (IATA, optional)
               </label>
               <input
                 value={destination}
@@ -185,13 +191,13 @@ export default function Home() {
 
             <div className="md:col-span-1">
               <label className="block text-xs font-medium text-zinc-600 dark:text-zinc-400">
-                Airline (optional)
+                Airlines (optional, comma-separated)
               </label>
               <input
                 value={airline}
                 onChange={(e) => setAirline(e.target.value)}
                 className="mt-1 w-full rounded-xl border border-zinc-200 bg-white px-3 py-2 text-sm text-zinc-900 outline-none focus:border-zinc-400 dark:border-zinc-800 dark:bg-zinc-950 dark:text-zinc-50"
-                placeholder="UA / DL / AA"
+                placeholder="UA, DL, AA"
               />
             </div>
 
@@ -225,8 +231,9 @@ export default function Home() {
           </div>
 
           <div className="mt-8">
-            <FlightBatchTable
-              items={batch}
+            <BatchPortfolioTable
+              rows={batchRows}
+              setRows={setBatchRows}
               isLoading={isLoading}
               error={error}
             />
