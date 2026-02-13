@@ -4,11 +4,20 @@
 import React, { useMemo } from "react";
 
 export type BatchRow = {
+  id?: string; // fa_flight_id (optional but preferred)
   airline: string;
   flightNumber: string;
   origin: string;
   destination: string;
-  departLocalISO?: string;
+
+  scheduledDepartISO?: string;
+  actualDepartISO?: string;
+  scheduledArriveISO?: string;
+  actualArriveISO?: string;
+
+  departureDelayMin?: number;
+  arrivalDelayMin?: number;
+
   status: string;
   included: boolean;
 };
@@ -25,13 +34,29 @@ function formatTime(iso?: string) {
   });
 }
 
+function diffMinutes(aISO?: string, bISO?: string) {
+  if (!aISO || !bISO) return undefined;
+  const a = new Date(aISO).getTime();
+  const b = new Date(bISO).getTime();
+  if (Number.isNaN(a) || Number.isNaN(b)) return undefined;
+  return Math.round((a - b) / 60000);
+}
+
+function fmtMin(n?: number) {
+  if (n === undefined) return "—";
+  const sign = n > 0 ? "+" : "";
+  return `${sign}${n}m`;
+}
+
 function rowKey(x: BatchRow) {
+  // Prefer stable ID if present.
+  if (x.id) return `id:${x.id}`;
   return [
     x.airline,
     x.flightNumber,
     x.origin,
     x.destination,
-    x.departLocalISO ?? "",
+    x.scheduledDepartISO ?? "",
   ].join("|");
 }
 
@@ -108,7 +133,15 @@ export default function BatchPortfolioTable({
               <th className="px-3 py-2 font-medium">Airline</th>
               <th className="px-3 py-2 font-medium">Flight</th>
               <th className="px-3 py-2 font-medium">Route</th>
-              <th className="px-3 py-2 font-medium">Departure</th>
+
+              <th className="px-3 py-2 font-medium">Sched Dep</th>
+              <th className="px-3 py-2 font-medium">Act Dep</th>
+              <th className="px-3 py-2 font-medium">Dep Δ</th>
+
+              <th className="px-3 py-2 font-medium">Sched Arr</th>
+              <th className="px-3 py-2 font-medium">Act Arr</th>
+              <th className="px-3 py-2 font-medium">Arr Delay</th>
+
               <th className="px-3 py-2 font-medium">Status</th>
             </tr>
           </thead>
@@ -117,7 +150,7 @@ export default function BatchPortfolioTable({
             {isLoading ? (
               <tr>
                 <td
-                  colSpan={6}
+                  colSpan={11}
                   className="px-3 py-6 text-zinc-500 dark:text-zinc-400"
                 >
                   Loading…
@@ -126,7 +159,7 @@ export default function BatchPortfolioTable({
             ) : rows.length === 0 ? (
               <tr>
                 <td
-                  colSpan={6}
+                  colSpan={11}
                   className="px-3 py-6 text-zinc-500 dark:text-zinc-400"
                 >
                   No batch yet. Run a search.
@@ -135,6 +168,18 @@ export default function BatchPortfolioTable({
             ) : (
               rows.map((r) => {
                 const k = rowKey(r);
+
+                const depDeltaMin =
+                  r.actualDepartISO && r.scheduledDepartISO
+                    ? diffMinutes(r.actualDepartISO, r.scheduledDepartISO)
+                    : undefined;
+
+                const arrDelayMin =
+                  r.arrivalDelayMin ??
+                  (r.actualArriveISO && r.scheduledArriveISO
+                    ? diffMinutes(r.actualArriveISO, r.scheduledArriveISO)
+                    : undefined);
+
                 return (
                   <tr
                     key={k}
@@ -148,16 +193,36 @@ export default function BatchPortfolioTable({
                         className="h-4 w-4"
                       />
                     </td>
+
                     <td className="px-3 py-2 font-medium">{r.airline}</td>
                     <td className="px-3 py-2">{r.flightNumber}</td>
+
                     <td className="px-3 py-2">
                       <span className="font-mono text-xs">{r.origin}</span>
                       <span className="mx-2 text-zinc-400">→</span>
                       <span className="font-mono text-xs">{r.destination}</span>
                     </td>
+
                     <td className="px-3 py-2">
-                      {formatTime(r.departLocalISO)}
+                      {formatTime(r.scheduledDepartISO)}
                     </td>
+                    <td className="px-3 py-2">
+                      {formatTime(r.actualDepartISO)}
+                    </td>
+                    <td className="px-3 py-2 font-mono text-xs">
+                      {fmtMin(depDeltaMin)}
+                    </td>
+
+                    <td className="px-3 py-2">
+                      {formatTime(r.scheduledArriveISO)}
+                    </td>
+                    <td className="px-3 py-2">
+                      {formatTime(r.actualArriveISO)}
+                    </td>
+                    <td className="px-3 py-2 font-mono text-xs">
+                      {fmtMin(arrDelayMin)}
+                    </td>
+
                     <td className="px-3 py-2">{r.status}</td>
                   </tr>
                 );

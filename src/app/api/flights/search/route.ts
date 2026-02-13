@@ -42,14 +42,24 @@ type AeroApiSchedulesResponse = {
 };
 
 type FlightResult = {
-  id?: string;
+  id?: string; // fa_flight_id
   airline?: string;
   flightNumber?: string;
   origin?: string;
   destination?: string;
+
+  scheduledDepartISO?: string;
+  actualDepartISO?: string;
+  scheduledArriveISO?: string;
+  actualArriveISO?: string;
+
+  departureDelayMin?: number;
+  arrivalDelayMin?: number;
+
+  status?: string;
+
   departLocalISO?: string;
   arriveLocalISO?: string;
-  status?: string;
 };
 
 function isValidYyyyMmDd(s: string) {
@@ -129,7 +139,7 @@ function uniqKeyForFlight(r: FlightResult) {
   return [
     r.origin ?? "",
     r.destination ?? "",
-    r.departLocalISO ?? "",
+    r.scheduledDepartISO ?? r.departLocalISO ?? "",
     r.airline ?? "",
     r.flightNumber ?? "",
   ].join("|");
@@ -167,6 +177,40 @@ async function fetchSchedulesPage(opts: {
   });
 
   return { r, url };
+}
+
+type AeroApiFlightResponse = {
+  flights?: Array<{
+    fa_flight_id?: string | null;
+    scheduled_out?: string | null;
+    actual_out?: string | null;
+    scheduled_in?: string | null;
+    actual_in?: string | null;
+    departure_delay?: number | null; // seconds
+    arrival_delay?: number | null; // seconds
+    status?: string | null;
+  }> | null;
+};
+
+async function fetchFlightById(opts: { apiKey: string; faFlightId: string }) {
+  const url = buildAeroApiUrl(
+    `/flights/${encodeURIComponent(opts.faFlightId)}`,
+    {},
+  );
+  const r = await fetch(url, {
+    method: "GET",
+    headers: {
+      "x-apikey": opts.apiKey,
+      accept: "application/json",
+    },
+    cache: "no-store",
+  });
+  return { r, url };
+}
+
+function secToMin(sec: number | null | undefined) {
+  if (typeof sec !== "number" || Number.isNaN(sec)) return undefined;
+  return Math.round(sec / 60);
 }
 
 export async function POST(req: Request) {
@@ -254,14 +298,17 @@ export async function POST(req: Request) {
         destination ??
         undefined;
 
-      const departISO = s.scheduled_out ?? undefined;
+      const scheduledDepartISO = s.scheduled_out ?? undefined;
 
       if (
         hasHourFilter &&
         departStartHour !== undefined &&
         departEndHour !== undefined
       ) {
-        if (!hourInWindowUTC(departISO, departStartHour, departEndHour)) return;
+        if (
+          !hourInWindowUTC(scheduledDepartISO, departStartHour, departEndHour)
+        )
+          return;
       }
 
       const candidate: FlightResult = {
@@ -270,8 +317,13 @@ export async function POST(req: Request) {
         flightNumber,
         origin: originOut,
         destination: destOut,
-        departLocalISO: departISO,
+
+        scheduledDepartISO,
+        scheduledArriveISO: s.scheduled_in ?? undefined,
+
+        departLocalISO: scheduledDepartISO,
         arriveLocalISO: s.scheduled_in ?? undefined,
+
         status: undefined,
       };
 
@@ -349,6 +401,43 @@ export async function POST(req: Request) {
         if (errRes) return errRes;
       }
     }
+
+    const maxEnrich = Math.min(out.length, limit);
+    const concurrency = 6;
+
+    let i = 0;
+    async function worker() {
+      while (i < maxEnrich) {
+        const idx = i;
+        i += 1;
+
+        const row = out[idx];
+        if (!row?.id) continue;
+
+        const { r } = await fetchFlightById({ apiKey, faFlightId: row.id });
+        if (!r.ok) continue;
+
+        const fj = (await r.json()) as AeroApiFlightResponse;
+        const f0 = Array.isArray(fj.flights) ? fj.flights[0] : undefined;
+        if (!f0) continue;
+
+        row.scheduledDepartISO = f0.scheduled_out ?? row.scheduledDepartISO;
+        row.actualDepartISO = f0.actual_out ?? undefined;
+        row.scheduledArriveISO = f0.scheduled_in ?? row.scheduledArriveISO;
+        row.actualArriveISO = f0.actual_in ?? undefined;
+
+        row.departureDelayMin = secToMin(f0.departure_delay);
+        row.arrivalDelayMin = secToMin(f0.arrival_delay);
+
+        row.status = f0.status ?? row.status;
+
+        // Back-compat:
+        row.departLocalISO = row.scheduledDepartISO;
+        row.arriveLocalISO = row.scheduledArriveISO;
+      }
+    }
+
+    await Promise.all(Array.from({ length: concurrency }, () => worker()));
 
     return NextResponse.json({ ok: true, flights: out }, { status: 200 });
   } catch (e: any) {

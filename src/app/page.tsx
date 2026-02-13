@@ -8,14 +8,25 @@ import BatchPortfolioTable, {
 } from "./components/BatchPortfolioTable";
 
 type FlightResult = {
-  id?: string;
+  id?: string; // fa_flight_id
   airline?: string;
   flightNumber?: string;
   origin?: string;
   destination?: string;
+
+  // NEW fields coming from your updated /api/flights/search
+  scheduledDepartISO?: string;
+  actualDepartISO?: string;
+  scheduledArriveISO?: string;
+  actualArriveISO?: string;
+  departureDelayMin?: number;
+  arrivalDelayMin?: number;
+
+  status?: string;
+
+  // Back-compat (safe if server still returns these)
   departLocalISO?: string;
   arriveLocalISO?: string;
-  status?: string;
 };
 
 type SearchResponse =
@@ -98,12 +109,26 @@ export default function Home() {
 
           const status = (f.status ?? "Scheduled").trim() || "Scheduled";
 
+          // Prefer the new scheduled/actual fields; fall back to old fields if present
+          const scheduledDepartISO =
+            f.scheduledDepartISO ?? f.departLocalISO ?? undefined;
+          const scheduledArriveISO =
+            f.scheduledArriveISO ?? f.arriveLocalISO ?? undefined;
+
           const row: BatchRow = {
+            id: f.id,
             airline: a,
             flightNumber: n,
             origin: o,
             destination: d,
-            departLocalISO: f.departLocalISO,
+
+            scheduledDepartISO,
+            actualDepartISO: f.actualDepartISO,
+            scheduledArriveISO,
+            actualArriveISO: f.actualArriveISO,
+            departureDelayMin: f.departureDelayMin,
+            arrivalDelayMin: f.arrivalDelayMin,
+
             status,
             included: true,
           };
@@ -123,7 +148,8 @@ export default function Home() {
 
   return (
     <div className="flex min-h-screen items-center justify-center bg-zinc-50 font-sans dark:bg-black">
-      <main className="w-full max-w-4xl px-6 py-12">
+      {/* widened from max-w-4xl -> max-w-7xl so the table fits */}
+      <main className="w-full max-w-7xl px-6 py-12">
         <div className="rounded-2xl bg-white p-8 shadow-sm dark:bg-zinc-950">
           <div className="flex items-start justify-between gap-6">
             <div className="flex flex-col gap-2">
