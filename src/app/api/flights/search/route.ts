@@ -2,10 +2,13 @@
 import { NextResponse } from "next/server";
 
 type SearchBody = {
-  origin: string;
-  destination: string;
+  origin?: string | null; // optional (wildcard if blank)
+  destination?: string | null; // optional (wildcard if blank)
   date: string; // YYYY-MM-DD
-  airline: string | null; // IATA or ICAO
+  airline?: string | null; // legacy: single airline (IATA or ICAO)
+  airlines?: string[] | null; // new: multiple airlines
+  departStartHour?: number | null; // 0..23 (UTC hour, inclusive)
+  departEndHour?: number | null; // 0..23 (UTC hour, inclusive)
   limit: number; // 1..200
 };
 
@@ -16,14 +19,24 @@ type AeroApiSchedulesResponse = {
     ident?: string;
     ident_icao?: string | null;
     ident_iata?: string | null;
+
+    // If ident is a codeshare, AeroAPI provides actual_ident fields.
+    // We use actual_ident* when available to represent the operating flight.
+    actual_ident?: string | null;
+    actual_ident_icao?: string | null;
+    actual_ident_iata?: string | null;
+
     scheduled_out?: string; // date-time (Z)
     scheduled_in?: string; // date-time (Z)
+
     origin?: string;
     origin_iata?: string | null;
     origin_icao?: string | null;
+
     destination?: string;
     destination_iata?: string | null;
     destination_icao?: string | null;
+
     fa_flight_id?: string | null;
   }>;
 };
@@ -47,6 +60,18 @@ function normalizeUpper(s: string) {
   return s.trim().toUpperCase();
 }
 
+function cleanAirportCode(s: string | null | undefined) {
+  const v = (s ?? "").trim();
+  if (!v) return undefined;
+  return normalizeUpper(v);
+}
+
+function cleanAirlineCode(s: string | null | undefined) {
+  const v = (s ?? "").trim();
+  if (!v) return undefined;
+  return normalizeUpper(v);
+}
+
 function addDaysISO(dateISO: string, days: number) {
   const [y, m, d] = dateISO.split("-").map((x) => Number(x));
   const dt = new Date(Date.UTC(y, m - 1, d));
@@ -62,8 +87,7 @@ function splitIdent(ident: string | undefined | null): {
   flightNumber?: string;
 } {
   if (!ident) return {};
-  const s = ident.trim().toUpperCase();
-  const compact = s.replace(/\s+/g, "");
+  const compact = ident.trim().toUpperCase().replace(/\s+/g, "");
   const m = compact.match(/^([A-Z]{2,3})(\d{1,5}[A-Z]?)$/);
   if (!m) return {};
   return { airline: m[1], flightNumber: m[2] };
@@ -81,9 +105,73 @@ function buildAeroApiUrl(
   return url.toString();
 }
 
+function clampInt(n: unknown, min: number, max: number, fallback: number) {
+  if (typeof n !== "number" || Number.isNaN(n)) return fallback;
+  return Math.max(min, Math.min(max, Math.floor(n)));
+}
+
+function hourInWindowUTC(iso: string | undefined, start: number, end: number) {
+  if (!iso) return false;
+  const d = new Date(iso);
+  if (Number.isNaN(d.getTime())) return false;
+  const h = d.getUTCHours();
+
+  // Inclusive window. Supports wraparound (e.g., 22 → 2).
+  if (start <= end) return h >= start && h <= end;
+  return h >= start || h <= end;
+}
+
+function uniqKeyForFlight(r: FlightResult) {
+  // Prefer FlightAware ID when available (best).
+  if (r.id) return `id:${r.id}`;
+
+  // Otherwise dedupe by route + departure time + operating ident.
+  return [
+    r.origin ?? "",
+    r.destination ?? "",
+    r.departLocalISO ?? "",
+    r.airline ?? "",
+    r.flightNumber ?? "",
+  ].join("|");
+}
+
+async function fetchSchedulesPage(opts: {
+  apiKey: string;
+  dateStart: string;
+  dateEnd: string;
+  origin?: string;
+  destination?: string;
+  airline?: string; // single airline filter, if provided
+  cursor?: string;
+}) {
+  const url = buildAeroApiUrl(
+    `/schedules/${encodeURIComponent(opts.dateStart)}/${encodeURIComponent(opts.dateEnd)}`,
+    {
+      origin: opts.origin,
+      destination: opts.destination,
+      airline: opts.airline,
+      include_codeshares: "false", // critical: avoid marketing-flight duplicates
+      include_regional: "true",
+      max_pages: "1",
+      cursor: opts.cursor,
+    },
+  );
+
+  const r = await fetch(url, {
+    method: "GET",
+    headers: {
+      "x-apikey": opts.apiKey,
+      accept: "application/json",
+    },
+    cache: "no-store",
+  });
+
+  return { r, url };
+}
+
 export async function POST(req: Request) {
   try {
-    const apiKey = process.env.FLIGHTAWARE_API_KEY;
+    const apiKey = process.env.FLIGHTAWARE_API_KEY ?? "";
     if (!apiKey) {
       return NextResponse.json(
         { ok: false, error: "Server missing FLIGHTAWARE_API_KEY" },
@@ -93,21 +181,10 @@ export async function POST(req: Request) {
 
     const body = (await req.json()) as Partial<SearchBody>;
 
-    const origin = normalizeUpper(body.origin ?? "");
-    const destination = normalizeUpper(body.destination ?? "");
+    const origin = cleanAirportCode(body.origin);
+    const destination = cleanAirportCode(body.destination);
+
     const date = (body.date ?? "").trim();
-    const airline = body.airline ? normalizeUpper(body.airline) : null;
-
-    const limitRaw = typeof body.limit === "number" ? body.limit : 25;
-    const limit = Math.max(1, Math.min(200, Math.floor(limitRaw)));
-
-    if (!origin || !destination) {
-      return NextResponse.json(
-        { ok: false, error: "origin and destination are required" },
-        { status: 400 },
-      );
-    }
-
     if (!isValidYyyyMmDd(date)) {
       return NextResponse.json(
         { ok: false, error: "date must be YYYY-MM-DD" },
@@ -115,96 +192,162 @@ export async function POST(req: Request) {
       );
     }
 
+    const limit = clampInt(body.limit, 1, 200, 25);
+
+    const departStartHour =
+      body.departStartHour === null || body.departStartHour === undefined
+        ? undefined
+        : clampInt(body.departStartHour, 0, 23, 0);
+
+    const departEndHour =
+      body.departEndHour === null || body.departEndHour === undefined
+        ? undefined
+        : clampInt(body.departEndHour, 0, 23, 23);
+
+    const hasHourFilter =
+      departStartHour !== undefined && departEndHour !== undefined;
+
+    // Airline filters:
+    // - Support legacy `airline` (single)
+    // - Support `airlines` (multi)
+    // If multiple are provided, we query each airline separately (more “institutional” control)
+    // and then dedupe + cap to limit.
+    let airlines: string[] = [];
+    if (Array.isArray(body.airlines) && body.airlines.length > 0) {
+      airlines = body.airlines
+        .map(cleanAirlineCode)
+        .filter((x): x is string => Boolean(x));
+    } else {
+      const single = cleanAirlineCode(body.airline);
+      if (single) airlines = [single];
+    }
+
     const dateStart = date;
     const dateEnd = addDaysISO(date, 1);
 
-    // We keep pagination, but IMPORTANT CHANGE:
-    // include_codeshares=false so we don't return a bunch of marketing-flight duplicates
-    // (this is why you saw many “different airlines” at the same departure time).
-    const maxPagesCap = 5;
-    let cursor: string | undefined = undefined;
-    let pagesFetched = 0;
+    const maxPagesCapPerQuery = 5;
 
     const out: FlightResult[] = [];
+    const seen = new Set<string>();
 
-    while (pagesFetched < maxPagesCap && out.length < limit) {
-      const url = buildAeroApiUrl(
-        `/schedules/${encodeURIComponent(dateStart)}/${encodeURIComponent(dateEnd)}`,
-        {
+    async function ingestFromScheduleItem(
+      s: NonNullable<AeroApiSchedulesResponse["scheduled"]>[number],
+    ) {
+      // Prefer operating ident fields when present (more “physical flight” oriented)
+      const bestIdent =
+        s.actual_ident_iata ??
+        s.actual_ident_icao ??
+        s.actual_ident ??
+        s.ident_iata ??
+        s.ident_icao ??
+        s.ident ??
+        "";
+
+      const { airline, flightNumber } = splitIdent(bestIdent);
+
+      const originOut =
+        s.origin_iata ?? s.origin_icao ?? s.origin ?? origin ?? undefined;
+      const destOut =
+        s.destination_iata ??
+        s.destination_icao ??
+        s.destination ??
+        destination ??
+        undefined;
+
+      const departISO = s.scheduled_out ?? undefined;
+
+      if (
+        hasHourFilter &&
+        departStartHour !== undefined &&
+        departEndHour !== undefined
+      ) {
+        if (!hourInWindowUTC(departISO, departStartHour, departEndHour)) return;
+      }
+
+      const candidate: FlightResult = {
+        id: s.fa_flight_id ?? undefined,
+        airline,
+        flightNumber,
+        origin: originOut,
+        destination: destOut,
+        departLocalISO: departISO,
+        arriveLocalISO: s.scheduled_in ?? undefined,
+        status: undefined,
+      };
+
+      const key = uniqKeyForFlight(candidate);
+      if (seen.has(key)) return;
+
+      seen.add(key);
+      out.push(candidate);
+    }
+
+    async function runQueryForAirline(airline?: string) {
+      let cursor: string | undefined = undefined;
+      let pagesFetched = 0;
+
+      while (pagesFetched < maxPagesCapPerQuery && out.length < limit) {
+        const { r } = await fetchSchedulesPage({
+          apiKey,
+          dateStart,
+          dateEnd,
           origin,
           destination,
-          airline: airline ?? undefined,
-          include_codeshares: "false", // <-- change here
-          include_regional: "true",
-          max_pages: "1",
+          airline,
           cursor,
-        },
-      );
-
-      const r = await fetch(url, {
-        method: "GET",
-        headers: {
-          "x-apikey": apiKey,
-          accept: "application/json",
-        },
-        cache: "no-store",
-      });
-
-      if (!r.ok) {
-        const text = await r.text().catch(() => "");
-        return NextResponse.json(
-          {
-            ok: false,
-            error: `FlightAware request failed (${r.status})`,
-            details: text ? { body: text } : undefined,
-          },
-          { status: 502 },
-        );
-      }
-
-      const json = (await r.json()) as AeroApiSchedulesResponse;
-
-      const scheduled = Array.isArray(json.scheduled) ? json.scheduled : [];
-      for (const s of scheduled) {
-        if (out.length >= limit) break;
-
-        const bestIdent = s.ident_iata ?? s.ident_icao ?? s.ident ?? "";
-        const { airline: a, flightNumber } = splitIdent(bestIdent);
-
-        const originOut = s.origin_iata ?? s.origin_icao ?? s.origin ?? origin;
-        const destOut =
-          s.destination_iata ??
-          s.destination_icao ??
-          s.destination ??
-          destination;
-
-        out.push({
-          id: s.fa_flight_id ?? undefined,
-          airline: a,
-          flightNumber,
-          origin: originOut,
-          destination: destOut,
-          departLocalISO: s.scheduled_out ?? undefined,
-          arriveLocalISO: s.scheduled_in ?? undefined,
-          status: undefined,
         });
-      }
 
-      pagesFetched += 1;
+        if (!r.ok) {
+          const text = await r.text().catch(() => "");
+          return NextResponse.json(
+            {
+              ok: false,
+              error: `FlightAware request failed (${r.status})`,
+              details: text ? { body: text } : undefined,
+            },
+            { status: 502 },
+          );
+        }
 
-      const next = json.links?.next;
-      if (next) {
-        try {
-          const nextUrl = new URL(next, "https://aeroapi.flightaware.com");
-          cursor = nextUrl.searchParams.get("cursor") ?? undefined;
-        } catch {
+        const json = (await r.json()) as AeroApiSchedulesResponse;
+        const scheduled = Array.isArray(json.scheduled) ? json.scheduled : [];
+
+        for (const s of scheduled) {
+          if (out.length >= limit) break;
+          await ingestFromScheduleItem(s);
+        }
+
+        pagesFetched += 1;
+
+        const next = json.links?.next;
+        if (next) {
+          try {
+            const nextUrl = new URL(next, "https://aeroapi.flightaware.com");
+            cursor = nextUrl.searchParams.get("cursor") ?? undefined;
+          } catch {
+            cursor = undefined;
+          }
+        } else {
           cursor = undefined;
         }
-      } else {
-        cursor = undefined;
+
+        if (!cursor) break;
       }
 
-      if (!cursor) break;
+      return null;
+    }
+
+    if (airlines.length === 0) {
+      // No airline filter: single query for the whole market slice (origin/dest optional)
+      const errRes = await runQueryForAirline(undefined);
+      if (errRes) return errRes;
+    } else {
+      // Multi-airline: query each carrier, dedupe/cap in server
+      for (const a of airlines) {
+        if (out.length >= limit) break;
+        const errRes = await runQueryForAirline(a);
+        if (errRes) return errRes;
+      }
     }
 
     return NextResponse.json({ ok: true, flights: out }, { status: 200 });
