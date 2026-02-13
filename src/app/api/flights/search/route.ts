@@ -20,8 +20,6 @@ type AeroApiSchedulesResponse = {
     ident_icao?: string | null;
     ident_iata?: string | null;
 
-    // If ident is a codeshare, AeroAPI provides actual_ident fields.
-    // We use actual_ident* when available to represent the operating flight.
     actual_ident?: string | null;
     actual_ident_icao?: string | null;
     actual_ident_iata?: string | null;
@@ -42,7 +40,12 @@ type AeroApiSchedulesResponse = {
 };
 
 type FlightResult = {
+  // NEW: primary identity
+  scheduleKey?: string;
+
+  // Back-compat: keep returning this for now (we will stop using it next)
   id?: string; // fa_flight_id
+
   airline?: string;
   flightNumber?: string;
   origin?: string;
@@ -126,16 +129,41 @@ function hourInWindowUTC(iso: string | undefined, start: number, end: number) {
   if (Number.isNaN(d.getTime())) return false;
   const h = d.getUTCHours();
 
-  // Inclusive window. Supports wraparound (e.g., 22 → 2).
   if (start <= end) return h >= start && h <= end;
   return h >= start || h <= end;
 }
 
+// NEW: deterministic schedule identity (UTC timestamp baked in)
+function buildScheduleKey(r: {
+  airline?: string;
+  flightNumber?: string;
+  origin?: string;
+  destination?: string;
+  scheduledDepartISO?: string;
+}) {
+  const a = (r.airline ?? "").trim().toUpperCase();
+  const n = (r.flightNumber ?? "").trim().toUpperCase();
+  const o = (r.origin ?? "").trim().toUpperCase();
+  const d = (r.destination ?? "").trim().toUpperCase();
+  const t = (r.scheduledDepartISO ?? "").trim();
+
+  if (!a || !n || !o || !d || !t) return undefined;
+
+  const dt = new Date(t);
+  if (Number.isNaN(dt.getTime())) return undefined;
+
+  // ISO string canonicalizes to UTC with seconds/ms; stable
+  const isoUTC = dt.toISOString();
+  return `${a}|${n}|${o}|${d}|${isoUTC}`;
+}
+
 function uniqKeyForFlight(r: FlightResult) {
-  // Prefer FlightAware ID when available (best).
+  // NEW: prefer scheduleKey always
+  if (r.scheduleKey) return `sk:${r.scheduleKey}`;
+
+  // Back-compat fallback:
   if (r.id) return `id:${r.id}`;
 
-  // Otherwise dedupe by route + departure time + operating ident.
   return [
     r.origin ?? "",
     r.destination ?? "",
@@ -151,16 +179,18 @@ async function fetchSchedulesPage(opts: {
   dateEnd: string;
   origin?: string;
   destination?: string;
-  airline?: string; // single airline filter, if provided
+  airline?: string;
   cursor?: string;
 }) {
   const url = buildAeroApiUrl(
-    `/schedules/${encodeURIComponent(opts.dateStart)}/${encodeURIComponent(opts.dateEnd)}`,
+    `/schedules/${encodeURIComponent(opts.dateStart)}/${encodeURIComponent(
+      opts.dateEnd,
+    )}`,
     {
       origin: opts.origin,
       destination: opts.destination,
       airline: opts.airline,
-      include_codeshares: "false", // critical: avoid marketing-flight duplicates
+      include_codeshares: "false",
       include_regional: "true",
       max_pages: "1",
       cursor: opts.cursor,
@@ -251,11 +281,6 @@ export async function POST(req: Request) {
     const hasHourFilter =
       departStartHour !== undefined && departEndHour !== undefined;
 
-    // Airline filters:
-    // - Support legacy `airline` (single)
-    // - Support `airlines` (multi)
-    // If multiple are provided, we query each airline separately (more “institutional” control)
-    // and then dedupe + cap to limit.
     let airlines: string[] = [];
     if (Array.isArray(body.airlines) && body.airlines.length > 0) {
       airlines = body.airlines
@@ -277,7 +302,6 @@ export async function POST(req: Request) {
     async function ingestFromScheduleItem(
       s: NonNullable<AeroApiSchedulesResponse["scheduled"]>[number],
     ) {
-      // Prefer operating ident fields when present (more “physical flight” oriented)
       const bestIdent =
         s.actual_ident_iata ??
         s.actual_ident_icao ??
@@ -312,7 +336,12 @@ export async function POST(req: Request) {
       }
 
       const candidate: FlightResult = {
+        // NEW: compute scheduleKey now
+        scheduleKey: undefined,
+
+        // Back-compat: keep returning FlightAware ID if present (we'll stop using it next)
         id: s.fa_flight_id ?? undefined,
+
         airline,
         flightNumber,
         origin: originOut,
@@ -326,6 +355,8 @@ export async function POST(req: Request) {
 
         status: undefined,
       };
+
+      candidate.scheduleKey = buildScheduleKey(candidate);
 
       const key = uniqKeyForFlight(candidate);
       if (seen.has(key)) return;
@@ -390,11 +421,9 @@ export async function POST(req: Request) {
     }
 
     if (airlines.length === 0) {
-      // No airline filter: single query for the whole market slice (origin/dest optional)
       const errRes = await runQueryForAirline(undefined);
       if (errRes) return errRes;
     } else {
-      // Multi-airline: query each carrier, dedupe/cap in server
       for (const a of airlines) {
         if (out.length >= limit) break;
         const errRes = await runQueryForAirline(a);
@@ -402,6 +431,8 @@ export async function POST(req: Request) {
       }
     }
 
+    // NOTE: enrichment still keys off row.id for now.
+    // Next step after frontend migration: either remove enrichment, or switch to scheduleKey->resolve->enrich.
     const maxEnrich = Math.min(out.length, limit);
     const concurrency = 6;
 
@@ -431,9 +462,11 @@ export async function POST(req: Request) {
 
         row.status = f0.status ?? row.status;
 
-        // Back-compat:
         row.departLocalISO = row.scheduledDepartISO;
         row.arriveLocalISO = row.scheduledArriveISO;
+
+        // Keep scheduleKey consistent even if scheduledDepartISO got normalized/updated.
+        row.scheduleKey = buildScheduleKey(row) ?? row.scheduleKey;
       }
     }
 
