@@ -4,7 +4,7 @@
 import React, { useMemo } from "react";
 
 export type BatchRow = {
-  id?: string; // fa_flight_id (optional but preferred)
+  scheduleKey: string; // NEW: primary identity (required)
   airline: string;
   flightNumber: string;
   origin: string;
@@ -20,6 +20,9 @@ export type BatchRow = {
 
   status: string;
   included: boolean;
+
+  // OPTIONAL: keep around for debugging / enrichment, but do not key off it.
+  faFlightId?: string;
 };
 
 function formatTime(iso: string | undefined, timeZone: string) {
@@ -36,7 +39,6 @@ function formatTime(iso: string | undefined, timeZone: string) {
       minute: "2-digit",
     }).format(d);
   } catch {
-    // If timeZone is invalid for any reason, fall back to a stable representation
     return d.toISOString();
   }
 }
@@ -56,14 +58,8 @@ function fmtMin(n?: number) {
 }
 
 function rowKey(x: BatchRow) {
-  if (x.id) return `id:${x.id}`;
-  return [
-    x.airline,
-    x.flightNumber,
-    x.origin,
-    x.destination,
-    x.scheduledDepartISO ?? "",
-  ].join("|");
+  // NEW: always key on scheduleKey
+  return `sk:${x.scheduleKey}`;
 }
 
 export default function BatchPortfolioTable({
