@@ -11,6 +11,7 @@ import FlightFilters, {
 } from "./components/FlightFilters";
 
 type FlightResult = {
+  scheduleKey?: string;
   id?: string; // fa_flight_id
   airline?: string;
   flightNumber?: string;
@@ -140,8 +141,11 @@ export default function Home() {
           const scheduledArriveISO =
             f.scheduledArriveISO ?? f.arriveLocalISO ?? undefined;
 
+          const scheduleKey = (f.scheduleKey ?? "").trim();
+          if (!scheduleKey) return null;
+
           const row: BatchRow = {
-            id: f.id,
+            scheduleKey,
             airline: a,
             flightNumber: n,
             origin: o,
@@ -156,6 +160,9 @@ export default function Home() {
 
             status,
             included: true,
+
+            // optional debug / future enrichment, not used for identity
+            faFlightId: f.id,
           };
 
           return row;
