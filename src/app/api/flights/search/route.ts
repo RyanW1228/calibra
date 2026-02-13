@@ -292,6 +292,9 @@ export async function POST(req: Request) {
       );
     }
 
+    const aeroStart = `${dateStart}T00:00:00Z`;
+    const aeroEnd = `${dateEnd}T00:00:00Z`;
+
     const limit = clampInt(body.limit, 1, 200, 25);
 
     const departStartHour =
@@ -393,10 +396,10 @@ export async function POST(req: Request) {
       let pagesFetched = 0;
 
       while (pagesFetched < maxPagesCapPerQuery && out.length < limit) {
-        const { r } = await fetchSchedulesPage({
+        const { r, url } = await fetchSchedulesPage({
           apiKey,
-          dateStart,
-          dateEnd,
+          dateStart: aeroStart,
+          dateEnd: aeroEnd,
           origin,
           destination,
           airline,
@@ -409,7 +412,7 @@ export async function POST(req: Request) {
             {
               ok: false,
               error: `FlightAware request failed (${r.status})`,
-              details: text ? { body: text } : undefined,
+              details: { url, body: text },
             },
             { status: 502 },
           );
