@@ -1,11 +1,14 @@
 // app/page.tsx
 "use client";
 
-import React, { useEffect, useMemo, useState } from "react";
+import React, { useState } from "react";
 import Image from "next/image";
 import BatchPortfolioTable, {
   type BatchRow,
 } from "./components/BatchPortfolioTable";
+import FlightFilters, {
+  type SearchPayloadV1,
+} from "./components/FlightFilters";
 
 type FlightResult = {
   id?: string; // fa_flight_id
@@ -14,7 +17,6 @@ type FlightResult = {
   origin?: string;
   destination?: string;
 
-  // NEW fields coming from your updated /api/flights/search
   scheduledDepartISO?: string;
   actualDepartISO?: string;
   scheduledArriveISO?: string;
@@ -24,7 +26,7 @@ type FlightResult = {
 
   status?: string;
 
-  // Back-compat (safe if server still returns these)
+  // Back-compat
   departLocalISO?: string;
   arriveLocalISO?: string;
 };
@@ -41,6 +43,10 @@ type SearchResponse =
       details?: unknown;
     };
 
+function normalize(s: string) {
+  return s.trim().toUpperCase();
+}
+
 function todayISO() {
   const d = new Date();
   const y = d.getFullYear();
@@ -49,53 +55,27 @@ function todayISO() {
   return `${y}-${m}-${day}`;
 }
 
-function normalize(s: string) {
-  return s.trim().toUpperCase();
-}
+async function postSearch(payload: any): Promise<SearchResponse> {
+  const res = await fetch("/api/flights/search", {
+    method: "POST",
+    headers: { "content-type": "application/json" },
+    body: JSON.stringify(payload),
+  });
 
-function useNowTick(refreshMs: number) {
-  const [now, setNow] = useState(() => new Date());
-  useEffect(() => {
-    const id = window.setInterval(() => setNow(new Date()), refreshMs);
-    return () => window.clearInterval(id);
-  }, [refreshMs]);
-  return now;
-}
+  const json = (await res.json()) as SearchResponse;
 
-function formatClock(now: Date, timeZone: string) {
-  try {
-    // Compact, readable clock (no seconds flicker? keep seconds since you asked "clock")
-    return new Intl.DateTimeFormat(undefined, {
-      timeZone,
-      year: "numeric",
-      month: "2-digit",
-      day: "2-digit",
-      hour: "2-digit",
-      minute: "2-digit",
-      second: "2-digit",
-    }).format(now);
-  } catch {
-    // If an invalid TZ ever gets set, fail soft.
-    return now.toISOString();
+  if (!res.ok) {
+    return {
+      ok: false,
+      error: json.ok ? "Request failed" : json.error,
+      details: json,
+    };
   }
-}
 
-const TIMEZONE_OPTIONS: Array<{ label: string; value: string }> = [
-  { label: "UTC", value: "UTC" },
-  { label: "New York (America/New_York)", value: "America/New_York" },
-  { label: "Denver (America/Denver)", value: "America/Denver" },
-  { label: "Los Angeles (America/Los_Angeles)", value: "America/Los_Angeles" },
-  { label: "London (Europe/London)", value: "Europe/London" },
-];
+  return json;
+}
 
 export default function Home() {
-  const [origin, setOrigin] = useState("DEN");
-  const [destination, setDestination] = useState("JFK");
-  const [date, setDate] = useState(todayISO());
-  const [airline, setAirline] = useState("");
-  const [maxResults, setMaxResults] = useState(25);
-
-  // NEW: single display timezone
   const [displayTimeZone, setDisplayTimeZone] = useState("UTC");
 
   const [isLoading, setIsLoading] = useState(false);
@@ -103,42 +83,44 @@ export default function Home() {
 
   const [batchRows, setBatchRows] = useState<BatchRow[]>([]);
 
-  const now = useNowTick(1000);
-  const nowLabel = useMemo(
-    () => formatClock(now, displayTimeZone),
-    [now, displayTimeZone],
-  );
-
-  async function onSearch() {
+  async function onSearch(payloadV1: SearchPayloadV1) {
     setIsLoading(true);
     setError(null);
 
     try {
-      const airlineList = airline
-        .split(",")
-        .map((s) => s.trim())
-        .filter(Boolean)
-        .map(normalize);
+      // For now, your backend only supports the legacy shape:
+      // { origin, destination, date, airlines, limit, departStartHour, departEndHour }
+      // So we down-compile schedule mode to a single-day query (dateStart) + single origin/destination.
+      //
+      // Next step (backend): accept dateStart/dateEnd, origins[], destinations[], departTimeWindow (tz-aware), etc.
+      if (payloadV1.mode === "lookup") {
+        setBatchRows([]);
+        setError("Lookup mode isn’t wired to the backend yet.");
+        return;
+      }
+
+      const origin = (payloadV1.origins?.[0] ?? "").trim();
+      const destination = (payloadV1.destinations?.[0] ?? "").trim();
+      const date = payloadV1.dateStart;
+
+      // carriers[] -> airlines
+      const airlines = Array.isArray(payloadV1.carriers)
+        ? payloadV1.carriers
+        : null;
 
       const payload = {
-        origin: origin.trim() ? normalize(origin) : null,
-        destination: destination.trim() ? normalize(destination) : null,
+        origin: origin ? normalize(origin) : null,
+        destination: destination ? normalize(destination) : null,
         date,
-        airlines: airlineList.length > 0 ? airlineList : null,
-        limit: Math.max(1, Math.min(200, maxResults)),
+        airlines: airlines && airlines.length ? airlines.map(normalize) : null,
+        limit: Math.max(1, Math.min(200, payloadV1.limit)),
       };
 
-      const res = await fetch("/api/flights/search", {
-        method: "POST",
-        headers: { "content-type": "application/json" },
-        body: JSON.stringify(payload),
-      });
+      const json = await postSearch(payload);
 
-      const json = (await res.json()) as SearchResponse;
-
-      if (!res.ok || !json.ok) {
+      if (!json.ok) {
         setBatchRows([]);
-        setError(json.ok ? "Unknown error" : json.error);
+        setError(json.error);
         return;
       }
 
@@ -217,111 +199,20 @@ export default function Home() {
                 Search flights and generate a normalized batch for downstream
                 processing.
               </p>
-
-              {/* NEW: timezone clock row */}
-              <div className="mt-1 flex flex-wrap items-center gap-3 text-xs text-zinc-500 dark:text-zinc-400">
-                <span>
-                  Now ({displayTimeZone}):{" "}
-                  <span className="font-mono">{nowLabel}</span>
-                </span>
-
-                <span className="text-zinc-300 dark:text-zinc-700">•</span>
-
-                <label className="flex items-center gap-2">
-                  <span>Display TZ</span>
-                  <select
-                    value={displayTimeZone}
-                    onChange={(e) => setDisplayTimeZone(e.target.value)}
-                    className="h-8 rounded-lg border border-zinc-200 bg-white px-2 text-xs text-zinc-900 outline-none focus:border-zinc-400 dark:border-zinc-800 dark:bg-zinc-950 dark:text-zinc-50"
-                  >
-                    {TIMEZONE_OPTIONS.map((tz) => (
-                      <option key={tz.value} value={tz.value}>
-                        {tz.label}
-                      </option>
-                    ))}
-                  </select>
-                </label>
-              </div>
             </div>
           </div>
 
-          <div className="mt-8 grid grid-cols-1 gap-4 md:grid-cols-5">
-            {/* ... unchanged inputs ... */}
-            <div className="md:col-span-1">
-              <label className="block text-xs font-medium text-zinc-600 dark:text-zinc-400">
-                Origin (IATA, optional)
-              </label>
-              <input
-                value={origin}
-                onChange={(e) => setOrigin(e.target.value)}
-                className="mt-1 w-full rounded-xl border border-zinc-200 bg-white px-3 py-2 text-sm text-zinc-900 outline-none focus:border-zinc-400 dark:border-zinc-800 dark:bg-zinc-950 dark:text-zinc-50"
-                placeholder="DEN"
-              />
-            </div>
-
-            <div className="md:col-span-1">
-              <label className="block text-xs font-medium text-zinc-600 dark:text-zinc-400">
-                Destination (IATA, optional)
-              </label>
-              <input
-                value={destination}
-                onChange={(e) => setDestination(e.target.value)}
-                className="mt-1 w-full rounded-xl border border-zinc-200 bg-white px-3 py-2 text-sm text-zinc-900 outline-none focus:border-zinc-400 dark:border-zinc-800 dark:bg-zinc-950 dark:text-zinc-50"
-                placeholder="JFK"
-              />
-            </div>
-
-            <div className="md:col-span-1">
-              <label className="block text-xs font-medium text-zinc-600 dark:text-zinc-400">
-                Date
-              </label>
-              <input
-                type="date"
-                value={date}
-                onChange={(e) => setDate(e.target.value)}
-                className="mt-1 w-full rounded-xl border border-zinc-200 bg-white px-3 py-2 text-sm text-zinc-900 outline-none focus:border-zinc-400 dark:border-zinc-800 dark:bg-zinc-950 dark:text-zinc-50"
-              />
-            </div>
-
-            <div className="md:col-span-1">
-              <label className="block text-xs font-medium text-zinc-600 dark:text-zinc-400">
-                Airlines (optional, comma-separated)
-              </label>
-              <input
-                value={airline}
-                onChange={(e) => setAirline(e.target.value)}
-                className="mt-1 w-full rounded-xl border border-zinc-200 bg-white px-3 py-2 text-sm text-zinc-900 outline-none focus:border-zinc-400 dark:border-zinc-800 dark:bg-zinc-950 dark:text-zinc-50"
-                placeholder="UA, DL, AA"
-              />
-            </div>
-
-            <div className="md:col-span-1">
-              <label className="block text-xs font-medium text-zinc-600 dark:text-zinc-400">
-                Max Results
-              </label>
-              <input
-                type="number"
-                value={maxResults}
-                onChange={(e) => setMaxResults(Number(e.target.value))}
-                min={1}
-                max={200}
-                className="mt-1 w-full rounded-xl border border-zinc-200 bg-white px-3 py-2 text-sm text-zinc-900 outline-none focus:border-zinc-400 dark:border-zinc-800 dark:bg-zinc-950 dark:text-zinc-50"
-              />
-            </div>
-          </div>
-
-          <div className="mt-6 flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
-            <button
-              onClick={onSearch}
-              disabled={isLoading}
-              className="inline-flex h-11 items-center justify-center rounded-full bg-zinc-900 px-5 text-sm font-medium text-white transition hover:bg-zinc-800 disabled:opacity-60 dark:bg-zinc-50 dark:text-zinc-900 dark:hover:bg-white"
-            >
-              {isLoading ? "Searching…" : "Search Flights"}
-            </button>
-
-            <div className="text-xs text-zinc-500 dark:text-zinc-400">
-              Calls <span className="font-mono">POST /api/flights/search</span>
-            </div>
+          <div className="mt-8">
+            <FlightFilters
+              isLoading={isLoading}
+              onSearch={onSearch}
+              displayTimeZone={displayTimeZone}
+              onDisplayTimeZoneChange={setDisplayTimeZone}
+              defaultOrigin="DEN"
+              defaultDestination="JFK"
+              defaultCarriersCsv=""
+              defaultLimit={25}
+            />
           </div>
 
           <div className="mt-8">
