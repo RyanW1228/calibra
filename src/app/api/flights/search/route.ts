@@ -1,4 +1,4 @@
-//app/api/flights/search/route.ts
+// app/api/flights/search/route.ts
 import { NextResponse } from "next/server";
 
 type SearchBody = {
@@ -6,7 +6,7 @@ type SearchBody = {
   destination: string;
   date: string; // YYYY-MM-DD
   airline: string | null; // IATA or ICAO
-  limit: number; // 1..200 (your UI clamps it)
+  limit: number; // 1..200
 };
 
 type AeroApiSchedulesResponse = {
@@ -48,7 +48,6 @@ function normalizeUpper(s: string) {
 }
 
 function addDaysISO(dateISO: string, days: number) {
-  // dateISO is YYYY-MM-DD, treat as UTC midnight
   const [y, m, d] = dateISO.split("-").map((x) => Number(x));
   const dt = new Date(Date.UTC(y, m - 1, d));
   dt.setUTCDate(dt.getUTCDate() + days);
@@ -64,8 +63,6 @@ function splitIdent(ident: string | undefined | null): {
 } {
   if (!ident) return {};
   const s = ident.trim().toUpperCase();
-
-  // common formats: "UA123", "UAL123", sometimes with spaces
   const compact = s.replace(/\s+/g, "");
   const m = compact.match(/^([A-Z]{2,3})(\d{1,5}[A-Z]?)$/);
   if (!m) return {};
@@ -118,13 +115,12 @@ export async function POST(req: Request) {
       );
     }
 
-    // AeroAPI schedules: if using date (not datetime), date_end should be next day to get one full day
-    // per OpenAPI description. :contentReference[oaicite:0]{index=0}
     const dateStart = date;
     const dateEnd = addDaysISO(date, 1);
 
-    // We'll paginate with cursor until we reach `limit` or hit a page cap.
-    // (AeroAPI supports cursor + max_pages). :contentReference[oaicite:1]{index=1}
+    // We keep pagination, but IMPORTANT CHANGE:
+    // include_codeshares=false so we don't return a bunch of marketing-flight duplicates
+    // (this is why you saw many “different airlines” at the same departure time).
     const maxPagesCap = 5;
     let cursor: string | undefined = undefined;
     let pagesFetched = 0;
@@ -138,7 +134,7 @@ export async function POST(req: Request) {
           origin,
           destination,
           airline: airline ?? undefined,
-          include_codeshares: "true",
+          include_codeshares: "false", // <-- change here
           include_regional: "true",
           max_pages: "1",
           cursor,
@@ -148,10 +144,9 @@ export async function POST(req: Request) {
       const r = await fetch(url, {
         method: "GET",
         headers: {
-          "x-apikey": apiKey, // AeroAPI v4 uses x-apikey header. :contentReference[oaicite:2]{index=2}
+          "x-apikey": apiKey,
           accept: "application/json",
         },
-        // Next.js route handlers run server-side; no caching for now
         cache: "no-store",
       });
 
@@ -191,14 +186,12 @@ export async function POST(req: Request) {
           destination: destOut,
           departLocalISO: s.scheduled_out ?? undefined,
           arriveLocalISO: s.scheduled_in ?? undefined,
-          status: undefined, // schedules endpoint is schedule data, not live status
+          status: undefined,
         });
       }
 
       pagesFetched += 1;
 
-      // Cursor handling: OpenAPI says `cursor` is for pagination and `links.next` exists in response. :contentReference[oaicite:3]{index=3}
-      // `links.next` is a URL; if present, we can extract cursor param from it.
       const next = json.links?.next;
       if (next) {
         try {

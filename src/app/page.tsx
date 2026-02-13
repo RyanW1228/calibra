@@ -3,6 +3,9 @@
 
 import React, { useMemo, useState } from "react";
 import Image from "next/image";
+import FlightBatchTable, {
+  type FlightBatchItem,
+} from "./components/FlightBatchTable";
 
 type FlightResult = {
   id?: string;
@@ -13,14 +16,6 @@ type FlightResult = {
   departLocalISO?: string;
   arriveLocalISO?: string;
   status?: string;
-};
-
-type FlightBatchItem = {
-  airline: string;
-  flightNumber: string;
-  origin: string;
-  destination: string;
-  departLocalISO?: string; // optional
 };
 
 type SearchResponse =
@@ -48,7 +43,6 @@ function normalize(s: string) {
 }
 
 function buildBatch(flights: FlightResult[]): FlightBatchItem[] {
-  // IMPORTANT: build directly as FlightBatchItem | null so the type guard is valid.
   const items: Array<FlightBatchItem | null> = flights.map((f) => {
     const airline = (f.airline ?? "").trim();
     const flightNumber = (f.flightNumber ?? "").trim();
@@ -82,7 +76,6 @@ export default function Home() {
   const [isLoading, setIsLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [flights, setFlights] = useState<FlightResult[]>([]);
-  const [lastResponseRaw, setLastResponseRaw] = useState<unknown>(null);
 
   const batch = useMemo(() => buildBatch(flights), [flights]);
 
@@ -109,16 +102,13 @@ export default function Home() {
 
       if (!res.ok || !json.ok) {
         setFlights([]);
-        setLastResponseRaw((json as any)?.details ?? json);
         setError(json.ok ? "Unknown error" : json.error);
         return;
       }
 
       setFlights(json.flights ?? []);
-      setLastResponseRaw(json.raw ?? null);
     } catch (e: any) {
       setFlights([]);
-      setLastResponseRaw(null);
       setError(e?.message ?? "Request failed");
     } finally {
       setIsLoading(false);
@@ -144,12 +134,14 @@ export default function Home() {
                   Calibra
                 </span>
               </div>
+
               <h1 className="text-2xl font-semibold tracking-tight text-zinc-950 dark:text-zinc-50">
                 Flight Filter → Batch Builder
               </h1>
+
               <p className="text-sm leading-6 text-zinc-600 dark:text-zinc-400">
-                Filter and fetch flights via a server-side API route, then
-                generate a batch payload you can reuse downstream.
+                Search flights and generate a normalized batch for downstream
+                processing.
               </p>
             </div>
           </div>
@@ -232,80 +224,12 @@ export default function Home() {
             </div>
           </div>
 
-          {error ? (
-            <div className="mt-6 rounded-xl border border-red-200 bg-red-50 p-4 text-sm text-red-700 dark:border-red-900/50 dark:bg-red-950/30 dark:text-red-200">
-              <div className="font-medium">Error</div>
-              <div className="mt-1">{error}</div>
-            </div>
-          ) : null}
-
-          <div className="mt-8 grid grid-cols-1 gap-6 md:grid-cols-2">
-            <div className="rounded-2xl border border-zinc-200 p-5 dark:border-zinc-800">
-              <div className="flex items-center justify-between">
-                <h2 className="text-sm font-semibold text-zinc-900 dark:text-zinc-50">
-                  Results ({flights.length})
-                </h2>
-                <span className="text-xs text-zinc-500 dark:text-zinc-400">
-                  Preview
-                </span>
-              </div>
-
-              <div className="mt-4 max-h-[420px] overflow-auto rounded-xl bg-zinc-50 p-3 text-xs text-zinc-900 dark:bg-black dark:text-zinc-50">
-                {flights.length === 0 ? (
-                  <div className="text-zinc-500 dark:text-zinc-400">
-                    No results yet.
-                  </div>
-                ) : (
-                  <pre className="whitespace-pre-wrap break-words">
-                    {JSON.stringify(flights.slice(0, 50), null, 2)}
-                  </pre>
-                )}
-              </div>
-            </div>
-
-            <div className="rounded-2xl border border-zinc-200 p-5 dark:border-zinc-800">
-              <div className="flex items-center justify-between">
-                <h2 className="text-sm font-semibold text-zinc-900 dark:text-zinc-50">
-                  Batch ({batch.length})
-                </h2>
-                <span className="text-xs text-zinc-500 dark:text-zinc-400">
-                  What you’ll persist / process
-                </span>
-              </div>
-
-              <div className="mt-4 max-h-[420px] overflow-auto rounded-xl bg-zinc-50 p-3 text-xs text-zinc-900 dark:bg-black dark:text-zinc-50">
-                {batch.length === 0 ? (
-                  <div className="text-zinc-500 dark:text-zinc-400">
-                    Batch will appear after search.
-                  </div>
-                ) : (
-                  <pre className="whitespace-pre-wrap break-words">
-                    {JSON.stringify(batch, null, 2)}
-                  </pre>
-                )}
-              </div>
-
-              {lastResponseRaw ? (
-                <details className="mt-4">
-                  <summary className="cursor-pointer text-xs font-medium text-zinc-600 dark:text-zinc-400">
-                    Debug: raw response
-                  </summary>
-                  <div className="mt-2 max-h-[220px] overflow-auto rounded-xl bg-zinc-50 p-3 text-xs text-zinc-900 dark:bg-black dark:text-zinc-50">
-                    <pre className="whitespace-pre-wrap break-words">
-                      {JSON.stringify(lastResponseRaw, null, 2)}
-                    </pre>
-                  </div>
-                </details>
-              ) : null}
-            </div>
-          </div>
-
-          <div className="mt-8 text-xs leading-5 text-zinc-500 dark:text-zinc-400">
-            Next step: create{" "}
-            <span className="font-mono">app/api/flights/search/route.ts</span>{" "}
-            to call FlightAware server-side using{" "}
-            <span className="font-mono">FLIGHTAWARE_API_KEY</span> and return
-            the normalized fields used above.
+          <div className="mt-8">
+            <FlightBatchTable
+              items={batch}
+              isLoading={isLoading}
+              error={error}
+            />
           </div>
         </div>
       </main>
