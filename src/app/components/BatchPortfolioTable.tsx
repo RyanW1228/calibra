@@ -81,17 +81,21 @@ export default function BatchPortfolioTable({
   isLoading,
   error,
   displayTimeZone,
+  onCreateBatch,
 }: {
   rows: BatchRow[];
   setRows: React.Dispatch<React.SetStateAction<BatchRow[]>>;
   isLoading: boolean;
   error: string | null;
   displayTimeZone: string;
+  onCreateBatch: (selected: BatchRow[]) => void;
 }) {
   const includedCount = useMemo(
     () => rows.reduce((acc, r) => acc + (r.included ? 1 : 0), 0),
     [rows],
   );
+
+  const selectedRows = useMemo(() => rows.filter((r) => r.included), [rows]);
 
   function toggleIncluded(key: string) {
     setRows((prev) =>
@@ -133,6 +137,13 @@ export default function BatchPortfolioTable({
             disabled={rows.length === 0}
           >
             Deselect All
+          </button>
+          <button
+            onClick={() => onCreateBatch(selectedRows)}
+            className="inline-flex h-9 items-center justify-center rounded-full bg-emerald-600 px-4 text-xs font-medium text-white transition hover:bg-emerald-500 disabled:opacity-60"
+            disabled={isLoading || selectedRows.length === 0}
+          >
+            Create Batch ({selectedRows.length})
           </button>
         </div>
       </div>

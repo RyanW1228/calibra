@@ -2,6 +2,7 @@
 "use client";
 
 import React, { useState } from "react";
+import { useRouter } from "next/navigation";
 import Image from "next/image";
 import BatchPortfolioTable, {
   type BatchRow,
@@ -73,14 +74,6 @@ function addDaysYyyyMmDd(dateISO: string, days: number): string {
   return `${yy}-${mm}-${dd}`;
 }
 
-function todayISO() {
-  const d = new Date();
-  const y = d.getFullYear();
-  const m = String(d.getMonth() + 1).padStart(2, "0");
-  const day = String(d.getDate()).padStart(2, "0");
-  return `${y}-${m}-${day}`;
-}
-
 async function postSearch(payload: any): Promise<SearchResponse> {
   const res = await fetch("/api/flights/search", {
     method: "POST",
@@ -101,7 +94,45 @@ async function postSearch(payload: any): Promise<SearchResponse> {
   return json;
 }
 
+async function postCreateBatch(payload: {
+  displayTimeZone: string;
+  flights: Array<{
+    scheduleKey: string;
+    airline: string;
+    flightNumber: string;
+    origin: string;
+    destination: string;
+    scheduledDepartISO?: string;
+    scheduledArriveISO?: string;
+  }>;
+}): Promise<
+  | { ok: true; batchId: string }
+  | { ok: false; error: string; details?: unknown }
+> {
+  const res = await fetch("/api/batches/create", {
+    method: "POST",
+    headers: { "content-type": "application/json" },
+    body: JSON.stringify(payload),
+  });
+
+  const json = (await res.json()) as
+    | { ok: true; batchId: string }
+    | { ok: false; error: string; details?: unknown };
+
+  if (!res.ok) {
+    return {
+      ok: false,
+      error: json.ok ? "Request failed" : json.error,
+      details: json,
+    };
+  }
+
+  return json;
+}
+
 export default function Home() {
+  const router = useRouter();
+
   const [displayTimeZone, setDisplayTimeZone] = useState("UTC");
 
   const [isLoading, setIsLoading] = useState(false);
@@ -212,6 +243,41 @@ export default function Home() {
     }
   }
 
+  async function onCreateBatch(selected: BatchRow[]) {
+    if (selected.length === 0) return;
+
+    setIsLoading(true);
+    setError(null);
+
+    try {
+      const payload = {
+        displayTimeZone,
+        flights: selected.map((r) => ({
+          scheduleKey: r.scheduleKey,
+          airline: r.airline,
+          flightNumber: r.flightNumber,
+          origin: r.origin,
+          destination: r.destination,
+          scheduledDepartISO: r.scheduledDepartISO,
+          scheduledArriveISO: r.scheduledArriveISO,
+        })),
+      };
+
+      const json = await postCreateBatch(payload);
+
+      if (!json.ok) {
+        setError(json.error);
+        return;
+      }
+
+      router.push(`/fund/${encodeURIComponent(json.batchId)}`);
+    } catch (e: any) {
+      setError(e?.message ?? "Create batch failed");
+    } finally {
+      setIsLoading(false);
+    }
+  }
+
   return (
     <div className="flex min-h-screen items-center justify-center bg-zinc-50 font-sans dark:bg-black">
       <main className="w-full max-w-7xl px-6 py-12">
@@ -263,6 +329,7 @@ export default function Home() {
               isLoading={isLoading}
               error={error}
               displayTimeZone={displayTimeZone}
+              onCreateBatch={onCreateBatch}
             />
           </div>
         </div>
