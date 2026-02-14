@@ -13,9 +13,15 @@ export type BatchRow = {
   scheduledDepartISO?: string;
   actualDepartISO?: string;
   scheduledArriveISO?: string;
+
+  // NEW: expected arrival (ETA). For flights not yet arrived, this is what you show.
+  expectedArriveISO?: string;
+
   actualArriveISO?: string;
 
   departureDelayMin?: number;
+
+  // Optional: if you already compute arrival delay elsewhere, keep this.
   arrivalDelayMin?: number;
 
   status: string;
@@ -49,6 +55,13 @@ function diffMinutes(aISO?: string, bISO?: string) {
   const b = new Date(bISO).getTime();
   if (Number.isNaN(a) || Number.isNaN(b)) return undefined;
   return Math.round((a - b) / 60000);
+}
+
+function addMinutesISO(iso?: string, minutes?: number) {
+  if (!iso || minutes === undefined) return undefined;
+  const ms = new Date(iso).getTime();
+  if (Number.isNaN(ms)) return undefined;
+  return new Date(ms + minutes * 60000).toISOString();
 }
 
 function fmtMin(n?: number) {
@@ -132,23 +145,45 @@ export default function BatchPortfolioTable({
       ) : null}
 
       <div className="mt-4 overflow-auto rounded-xl border border-zinc-200 dark:border-zinc-800">
-        <table className="min-w-full text-left text-sm">
+        <table className="min-w-[1700px] text-left text-sm">
           <thead className="sticky top-0 z-10 bg-zinc-50 text-xs text-zinc-600 dark:bg-black dark:text-zinc-400">
             <tr>
-              <th className="w-10 px-3 py-2 font-medium">✓</th>
-              <th className="px-3 py-2 font-medium">Airline</th>
-              <th className="px-3 py-2 font-medium">Flight</th>
-              <th className="px-3 py-2 font-medium">Route</th>
+              <th className="w-10 px-3 py-2 font-medium whitespace-nowrap">
+                ✓
+              </th>
+              <th className="px-3 py-2 font-medium whitespace-nowrap">
+                Airline
+              </th>
+              <th className="px-3 py-2 font-medium whitespace-nowrap">
+                Flight
+              </th>
+              <th className="px-3 py-2 font-medium whitespace-nowrap">Route</th>
 
-              <th className="px-3 py-2 font-medium">Sched Dep</th>
-              <th className="px-3 py-2 font-medium">Act Dep</th>
-              <th className="px-3 py-2 font-medium">Dep Δ</th>
+              <th className="px-3 py-2 font-medium whitespace-nowrap">
+                Sched Dep
+              </th>
+              <th className="px-3 py-2 font-medium whitespace-nowrap">
+                Act Dep
+              </th>
+              <th className="px-3 py-2 font-medium whitespace-nowrap">Dep Δ</th>
 
-              <th className="px-3 py-2 font-medium">Sched Arr</th>
-              <th className="px-3 py-2 font-medium">Act Arr</th>
-              <th className="px-3 py-2 font-medium">Arr Delay</th>
+              <th className="px-3 py-2 font-medium whitespace-nowrap">
+                Sched Arr
+              </th>
 
-              <th className="px-3 py-2 font-medium">Status</th>
+              <th className="px-3 py-2 font-medium whitespace-nowrap">
+                Exp Arr
+              </th>
+              <th className="px-3 py-2 font-medium whitespace-nowrap">Exp Δ</th>
+
+              <th className="px-3 py-2 font-medium whitespace-nowrap">
+                Act Arr
+              </th>
+              <th className="px-3 py-2 font-medium whitespace-nowrap">Act Δ</th>
+
+              <th className="px-3 py-2 font-medium whitespace-nowrap">
+                Status
+              </th>
             </tr>
           </thead>
 
@@ -156,7 +191,7 @@ export default function BatchPortfolioTable({
             {isLoading ? (
               <tr>
                 <td
-                  colSpan={11}
+                  colSpan={13}
                   className="px-3 py-6 text-zinc-500 dark:text-zinc-400"
                 >
                   Loading…
@@ -165,7 +200,7 @@ export default function BatchPortfolioTable({
             ) : rows.length === 0 ? (
               <tr>
                 <td
-                  colSpan={11}
+                  colSpan={13}
                   className="px-3 py-6 text-zinc-500 dark:text-zinc-400"
                 >
                   No batch yet. Run a search.
@@ -180,11 +215,27 @@ export default function BatchPortfolioTable({
                     ? diffMinutes(r.actualDepartISO, r.scheduledDepartISO)
                     : undefined;
 
-                const arrDelayMin =
-                  r.arrivalDelayMin ??
-                  (r.actualArriveISO && r.scheduledArriveISO
-                    ? diffMinutes(r.actualArriveISO, r.scheduledArriveISO)
-                    : undefined);
+                const hasArrived = Boolean(r.actualArriveISO);
+                const hasEta = Boolean(r.expectedArriveISO);
+
+                const actArrDeltaMin = hasArrived
+                  ? (r.arrivalDelayMin ??
+                    (r.actualArriveISO && r.scheduledArriveISO
+                      ? diffMinutes(r.actualArriveISO, r.scheduledArriveISO)
+                      : undefined))
+                  : undefined;
+
+                const expArrDeltaMin = hasArrived
+                  ? actArrDeltaMin
+                  : (r.arrivalDelayMin ??
+                    (hasEta && r.expectedArriveISO && r.scheduledArriveISO
+                      ? diffMinutes(r.expectedArriveISO, r.scheduledArriveISO)
+                      : undefined));
+
+                const expArrISO = hasArrived
+                  ? r.actualArriveISO
+                  : (addMinutesISO(r.scheduledArriveISO, expArrDeltaMin) ??
+                    r.scheduledArriveISO);
 
                 return (
                   <tr
@@ -222,11 +273,19 @@ export default function BatchPortfolioTable({
                     <td className="px-3 py-2">
                       {formatTime(r.scheduledArriveISO, displayTimeZone)}
                     </td>
+
+                    <td className="px-3 py-2">
+                      {formatTime(expArrISO, displayTimeZone)}
+                    </td>
+                    <td className="px-3 py-2 font-mono text-xs">
+                      {fmtMin(expArrDeltaMin)}
+                    </td>
+
                     <td className="px-3 py-2">
                       {formatTime(r.actualArriveISO, displayTimeZone)}
                     </td>
                     <td className="px-3 py-2 font-mono text-xs">
-                      {fmtMin(arrDelayMin)}
+                      {fmtMin(actArrDeltaMin)}
                     </td>
 
                     <td className="px-3 py-2">{r.status}</td>

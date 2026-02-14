@@ -55,6 +55,7 @@ type FlightResult = {
   scheduledDepartISO?: string;
   actualDepartISO?: string;
   scheduledArriveISO?: string;
+  expectedArriveISO?: string;
   actualArriveISO?: string;
 
   departureDelayMin?: number;
@@ -216,6 +217,7 @@ type AeroApiFlightResponse = {
     scheduled_out?: string | null;
     actual_out?: string | null;
     scheduled_in?: string | null;
+    estimated_in?: string | null;
     actual_in?: string | null;
     departure_delay?: number | null; // seconds
     arrival_delay?: number | null; // seconds
@@ -375,6 +377,7 @@ export async function POST(req: Request) {
 
         scheduledDepartISO,
         scheduledArriveISO: s.scheduled_in ?? undefined,
+        expectedArriveISO: undefined,
 
         departLocalISO: scheduledDepartISO,
         arriveLocalISO: s.scheduled_in ?? undefined,
@@ -481,6 +484,7 @@ export async function POST(req: Request) {
         row.scheduledDepartISO = f0.scheduled_out ?? row.scheduledDepartISO;
         row.actualDepartISO = f0.actual_out ?? undefined;
         row.scheduledArriveISO = f0.scheduled_in ?? row.scheduledArriveISO;
+        row.expectedArriveISO = f0.estimated_in ?? undefined;
         row.actualArriveISO = f0.actual_in ?? undefined;
 
         row.departureDelayMin = secToMin(f0.departure_delay);

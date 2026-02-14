@@ -203,10 +203,12 @@ export default function FlightFilters(props: Props) {
   const [sortBy, setSortBy] = useState<"schedDep" | "schedArr">("schedDep");
   const [sortOrder, setSortOrder] = useState<"asc" | "desc">("asc");
 
-  const [limit, setLimit] = useState<number>(defaultLimit ?? 25);
+  const [limitText, setLimitText] = useState<string>(
+    String(defaultLimit ?? 50),
+  );
 
   const [enrichEnabled, setEnrichEnabled] = useState(false);
-  const [enrichMax, setEnrichMax] = useState<number>(25);
+  const [enrichMaxText, setEnrichMaxText] = useState<string>("25");
 
   // Lookup mode fields
   const [faFlightIdsText, setFaFlightIdsText] = useState("");
@@ -273,10 +275,10 @@ export default function FlightFilters(props: Props) {
       dedupeMode,
       sort: { by: sortBy, order: sortOrder },
 
-      limit: clampInt(limit, 1, 200),
+      limit: clampInt(Number(limitText), 1, 200),
 
       enrich: enrichEnabled
-        ? { enabled: true, max: clampInt(enrichMax, 1, 200) }
+        ? { enabled: true, max: clampInt(Number(enrichMaxText), 1, 200) }
         : { enabled: false },
     };
 
@@ -300,7 +302,7 @@ export default function FlightFilters(props: Props) {
       faFlightIds: faFlightIds.length ? faFlightIds : null,
       scheduleKeys: scheduleKeys.length ? scheduleKeys : null,
       enrich: enrichEnabled
-        ? { enabled: true, max: clampInt(enrichMax, 1, 200) }
+        ? { enabled: true, max: clampInt(Number(enrichMaxText), 1, 200) }
         : { enabled: false },
     };
   }
@@ -654,8 +656,11 @@ export default function FlightFilters(props: Props) {
                   type="number"
                   min={1}
                   max={200}
-                  value={limit}
-                  onChange={(e) => setLimit(Number(e.target.value))}
+                  value={limitText}
+                  onChange={(e) => setLimitText(e.target.value)}
+                  onBlur={() =>
+                    setLimitText(String(clampInt(Number(limitText), 1, 200)))
+                  }
                   className="mt-2 w-full rounded-xl border border-zinc-200 bg-white px-3 py-2 text-sm text-zinc-900 outline-none focus:border-zinc-400 dark:border-zinc-800 dark:bg-zinc-950 dark:text-zinc-50"
                 />
               </div>
@@ -680,11 +685,17 @@ export default function FlightFilters(props: Props) {
                     type="number"
                     min={1}
                     max={200}
-                    value={enrichMax}
-                    onChange={(e) => setEnrichMax(Number(e.target.value))}
+                    value={enrichMaxText}
+                    onChange={(e) => setEnrichMaxText(e.target.value)}
+                    onBlur={() =>
+                      setEnrichMaxText(
+                        String(clampInt(Number(enrichMaxText), 1, 200)),
+                      )
+                    }
                     disabled={!enrichEnabled}
                     className="w-full rounded-xl border border-zinc-200 bg-white px-3 py-2 text-sm text-zinc-900 outline-none focus:border-zinc-400 disabled:opacity-60 dark:border-zinc-800 dark:bg-zinc-950 dark:text-zinc-50"
                   />
+
                   <div className="flex items-center text-[11px] text-zinc-500 dark:text-zinc-400">
                     Max rows to enrich (cost control)
                   </div>
@@ -749,11 +760,17 @@ export default function FlightFilters(props: Props) {
                 type="number"
                 min={1}
                 max={200}
-                value={enrichMax}
-                onChange={(e) => setEnrichMax(Number(e.target.value))}
+                value={enrichMaxText}
+                onChange={(e) => setEnrichMaxText(e.target.value)}
+                onBlur={() =>
+                  setEnrichMaxText(
+                    String(clampInt(Number(enrichMaxText), 1, 200)),
+                  )
+                }
                 disabled={!enrichEnabled}
                 className="w-full rounded-xl border border-zinc-200 bg-white px-3 py-2 text-sm text-zinc-900 outline-none focus:border-zinc-400 disabled:opacity-60 dark:border-zinc-800 dark:bg-zinc-950 dark:text-zinc-50"
               />
+
               <div className="flex items-center text-[11px] text-zinc-500 dark:text-zinc-400">
                 Max rows to enrich
               </div>
