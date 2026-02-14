@@ -1,3 +1,4 @@
+// calibra/src/lib/supabaseServer.ts
 import { createClient } from "@supabase/supabase-js";
 
 export function supabaseServer() {

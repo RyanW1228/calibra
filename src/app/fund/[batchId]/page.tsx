@@ -28,6 +28,8 @@ type BatchGetResponse =
     }
   | { ok: false; error: string; details?: unknown };
 
+type BatchInfo = Extract<BatchGetResponse, { ok: true }>["batch"];
+
 function fmtLocal(iso: string | null | undefined, tz: string) {
   if (!iso) return "—";
   const d = new Date(iso);
@@ -53,8 +55,8 @@ export default function FundBatchPage() {
   const [isLoading, setIsLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
 
-  const [batch, setBatch] =
-    useState<BatchGetResponse extends infer T ? any : any>(null);
+  const [batch, setBatch] = useState<BatchInfo | null>(null);
+
   const [flights, setFlights] = useState<BatchFlight[]>([]);
 
   const [amountUsdc, setAmountUsdc] = useState("");
