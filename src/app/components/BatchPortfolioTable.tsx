@@ -88,7 +88,7 @@ export default function BatchPortfolioTable({
   isLoading: boolean;
   error: string | null;
   displayTimeZone: string;
-  onCreateBatch: (selected: BatchRow[]) => void;
+  onCreateBatch: (selected: BatchRow[]) => Promise<void> | void;
 }) {
   const includedCount = useMemo(
     () => rows.reduce((acc, r) => acc + (r.included ? 1 : 0), 0),
@@ -127,14 +127,14 @@ export default function BatchPortfolioTable({
           <button
             onClick={() => setAll(true)}
             className="inline-flex h-9 items-center justify-center rounded-full bg-zinc-900 px-4 text-xs font-medium text-white transition hover:bg-zinc-800 disabled:opacity-60 dark:bg-zinc-50 dark:text-zinc-900 dark:hover:bg-white"
-            disabled={rows.length === 0}
+            disabled={isLoading || rows.length === 0}
           >
             Select All
           </button>
           <button
             onClick={() => setAll(false)}
             className="inline-flex h-9 items-center justify-center rounded-full border border-zinc-200 bg-white px-4 text-xs font-medium text-zinc-900 transition hover:bg-zinc-50 disabled:opacity-60 dark:border-zinc-800 dark:bg-zinc-950 dark:text-zinc-50 dark:hover:bg-black"
-            disabled={rows.length === 0}
+            disabled={isLoading || rows.length === 0}
           >
             Deselect All
           </button>
