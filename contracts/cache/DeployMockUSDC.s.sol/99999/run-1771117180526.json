@@ -1,0 +1,10 @@
+{
+  "transactions": [
+    {
+      "rpc": "https://rpc.ab.testnet.adifoundation.ai/"
+    },
+    {
+      "rpc": "https://rpc.ab.testnet.adifoundation.ai/"
+    }
+  ]
+}
