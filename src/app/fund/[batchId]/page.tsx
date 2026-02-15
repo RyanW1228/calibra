@@ -20,6 +20,9 @@ import {
   type Address,
   type Hex,
 } from "viem";
+import BatchParamsCard from "./components/BatchParamsCard";
+import FundAmountCard from "./components/FundAmountCard";
+import FlightsTable from "./components/FlightsTable";
 
 type BatchFlight = {
   schedule_key: string;
@@ -46,23 +49,6 @@ type BatchGetResponse =
   | { ok: false; error: string; details?: unknown };
 
 type BatchInfo = Extract<BatchGetResponse, { ok: true }>["batch"];
-
-function fmtLocal(iso: string | null | undefined, tz: string) {
-  if (!iso) return "—";
-  const d = new Date(iso);
-  if (Number.isNaN(d.getTime())) return iso;
-  try {
-    return new Intl.DateTimeFormat(undefined, {
-      timeZone: tz,
-      month: "2-digit",
-      day: "2-digit",
-      hour: "2-digit",
-      minute: "2-digit",
-    }).format(d);
-  } catch {
-    return d.toISOString();
-  }
-}
 
 const ADI_TESTNET_CHAIN_ID = 99999;
 
@@ -162,10 +148,7 @@ export default function FundBatchPage() {
       try {
         const res = await fetch(
           `/api/batches/get?batchId=${encodeURIComponent(batchId)}`,
-          {
-            method: "GET",
-            cache: "no-store",
-          },
+          { method: "GET", cache: "no-store" },
         );
 
         const json = (await res.json()) as BatchGetResponse;
@@ -337,7 +320,7 @@ export default function FundBatchPage() {
               ) : (
                 <button
                   onClick={() => ensureConnected()}
-                  className="inline-flex h-9 items-center justify-center rounded-full bg-zinc-900 px-4 text-xs font-medium text-white transition hover:bg-zinc-800 disabled:opacity-60 dark:bg-zinc-50 dark:text-zinc-900 dark:hover:bg-zinc-200"
+                  className="inline-flex h-9 items-center justify-center rounded-full bg-zinc-900 px-4 text-xs font-medium text-white transition hover:bg-zinc-800 dark:bg-zinc-50 dark:text-zinc-900 dark:hover:bg-zinc-200"
                 >
                   Connect Wallet
                 </button>
@@ -382,6 +365,7 @@ export default function FundBatchPage() {
                 {batch?.status ?? (isLoading ? "Loading…" : "—")}
               </div>
             </div>
+
             <div className="rounded-xl border border-zinc-200 p-4 dark:border-zinc-800">
               <div className="text-xs text-zinc-500 dark:text-zinc-400">
                 Flight Count
@@ -394,6 +378,7 @@ export default function FundBatchPage() {
                     : "—"}
               </div>
             </div>
+
             <div className="rounded-xl border border-zinc-200 p-4 dark:border-zinc-800">
               <div className="text-xs text-zinc-500 dark:text-zinc-400">
                 Display Time Zone
@@ -404,183 +389,31 @@ export default function FundBatchPage() {
             </div>
           </div>
 
-          <div className="mt-8 rounded-2xl border border-zinc-200 p-5 dark:border-zinc-800">
-            <div className="flex flex-col gap-2">
-              <div className="text-sm font-semibold text-zinc-900 dark:text-zinc-50">
-                Batch Parameters
-              </div>
+          <BatchParamsCard
+            windowStartLocal={windowStartLocal}
+            setWindowStartLocal={setWindowStartLocal}
+            windowEndLocal={windowEndLocal}
+            setWindowEndLocal={setWindowEndLocal}
+            wantArriveLe60={wantArriveLe60}
+            setWantArriveLe60={setWantArriveLe60}
+            wantArriveGt60={wantArriveGt60}
+            setWantArriveGt60={setWantArriveGt60}
+            wantCancelled={wantCancelled}
+            setWantCancelled={setWantCancelled}
+          />
 
-              <div className="mt-3 grid gap-3 sm:grid-cols-2">
-                <div className="flex flex-col gap-2">
-                  <div className="text-xs text-zinc-500 dark:text-zinc-400">
-                    Prediction Window Start
-                  </div>
-                  <input
-                    value={windowStartLocal}
-                    onChange={(e) => setWindowStartLocal(e.target.value)}
-                    type="datetime-local"
-                    className="h-10 w-full rounded-xl border border-zinc-200 bg-white px-4 text-sm text-zinc-900 outline-none focus:border-zinc-400 dark:border-zinc-800 dark:bg-zinc-950 dark:text-zinc-50 dark:focus:border-zinc-600"
-                  />
-                </div>
+          <FundAmountCard
+            amountUsdc={amountUsdc}
+            setAmountUsdc={setAmountUsdc}
+            canContinue={canContinue}
+            isLoading={isLoading}
+            isSubmitting={isSubmitting}
+            onContinue={onContinue}
+            isConnected={isConnected}
+            address={address}
+          />
 
-                <div className="flex flex-col gap-2">
-                  <div className="text-xs text-zinc-500 dark:text-zinc-400">
-                    Prediction Window End
-                  </div>
-                  <input
-                    value={windowEndLocal}
-                    onChange={(e) => setWindowEndLocal(e.target.value)}
-                    type="datetime-local"
-                    className="h-10 w-full rounded-xl border border-zinc-200 bg-white px-4 text-sm text-zinc-900 outline-none focus:border-zinc-400 dark:border-zinc-800 dark:bg-zinc-950 dark:text-zinc-50 dark:focus:border-zinc-600"
-                  />
-                </div>
-              </div>
-
-              <div className="mt-4 flex flex-col gap-2">
-                <div className="text-xs text-zinc-500 dark:text-zinc-400">
-                  Outcomes (partition)
-                </div>
-
-                <label className="flex items-center gap-2 text-sm text-zinc-900 dark:text-zinc-50">
-                  <input
-                    type="checkbox"
-                    checked={wantArriveLe60}
-                    onChange={(e) => setWantArriveLe60(e.target.checked)}
-                  />
-                  Arrival ≤ 60m from scheduled
-                </label>
-
-                <label className="flex items-center gap-2 text-sm text-zinc-900 dark:text-zinc-50">
-                  <input
-                    type="checkbox"
-                    checked={wantArriveGt60}
-                    onChange={(e) => setWantArriveGt60(e.target.checked)}
-                  />
-                  Arrival &gt; 60m from scheduled
-                </label>
-
-                <label className="flex items-center gap-2 text-sm text-zinc-900 dark:text-zinc-50">
-                  <input
-                    type="checkbox"
-                    checked={wantCancelled}
-                    onChange={(e) => setWantCancelled(e.target.checked)}
-                  />
-                  Cancelled
-                </label>
-              </div>
-            </div>
-          </div>
-
-          <div className="mt-6 rounded-2xl border border-zinc-200 p-5 dark:border-zinc-800">
-            <div className="flex flex-col gap-2">
-              <div className="text-sm font-semibold text-zinc-900 dark:text-zinc-50">
-                Funding Amount
-              </div>
-
-              <div className="mt-3 flex flex-col gap-3 sm:flex-row sm:items-center">
-                <input
-                  value={amountUsdc}
-                  onChange={(e) => setAmountUsdc(e.target.value)}
-                  inputMode="decimal"
-                  placeholder="USDC amount (e.g. 250)"
-                  className="h-10 w-full rounded-xl border border-zinc-200 bg-white px-4 text-sm text-zinc-900 outline-none focus:border-zinc-400 dark:border-zinc-800 dark:bg-zinc-950 dark:text-zinc-50 dark:focus:border-zinc-600"
-                />
-
-                <button
-                  onClick={onContinue}
-                  disabled={!canContinue || isLoading || isSubmitting}
-                  className="inline-flex h-10 items-center justify-center rounded-xl bg-emerald-600 px-5 text-sm font-medium text-white transition hover:bg-emerald-500 disabled:opacity-60"
-                >
-                  {isSubmitting ? "Submitting…" : "Continue"}
-                </button>
-              </div>
-
-              {isConnected && address ? (
-                <div className="mt-2 text-xs text-zinc-500 dark:text-zinc-400">
-                  Connected: <span className="font-mono">{address}</span>
-                </div>
-              ) : null}
-            </div>
-          </div>
-
-          <div className="mt-8 overflow-hidden rounded-2xl border border-zinc-200 dark:border-zinc-800">
-            <div className="flex items-center justify-between border-b border-zinc-200 bg-zinc-50 px-5 py-3 text-xs text-zinc-600 dark:border-zinc-800 dark:bg-black dark:text-zinc-400">
-              <div className="font-medium">Flights</div>
-              <div>{isLoading ? "Loading…" : `${flights.length}`}</div>
-            </div>
-
-            <div className="overflow-auto">
-              <table className="min-w-[1000px] text-left text-sm">
-                <thead className="bg-white text-xs text-zinc-600 dark:bg-zinc-950 dark:text-zinc-400">
-                  <tr>
-                    <th className="px-5 py-3 font-medium whitespace-nowrap">
-                      Flight
-                    </th>
-                    <th className="px-5 py-3 font-medium whitespace-nowrap">
-                      Route
-                    </th>
-                    <th className="px-5 py-3 font-medium whitespace-nowrap">
-                      Sched Dep
-                    </th>
-                    <th className="px-5 py-3 font-medium whitespace-nowrap">
-                      Sched Arr
-                    </th>
-                    <th className="px-5 py-3 font-medium whitespace-nowrap">
-                      Schedule Key
-                    </th>
-                  </tr>
-                </thead>
-                <tbody className="bg-white text-zinc-900 dark:bg-zinc-950 dark:text-zinc-50">
-                  {isLoading ? (
-                    <tr>
-                      <td
-                        colSpan={5}
-                        className="px-5 py-6 text-zinc-500 dark:text-zinc-400"
-                      >
-                        Loading…
-                      </td>
-                    </tr>
-                  ) : flights.length === 0 ? (
-                    <tr>
-                      <td
-                        colSpan={5}
-                        className="px-5 py-6 text-zinc-500 dark:text-zinc-400"
-                      >
-                        No flights found for this batch.
-                      </td>
-                    </tr>
-                  ) : (
-                    flights.map((f) => (
-                      <tr
-                        key={f.schedule_key}
-                        className="border-t border-zinc-100 dark:border-zinc-900"
-                      >
-                        <td className="px-5 py-3 font-medium">
-                          {f.airline} {f.flight_number}
-                        </td>
-                        <td className="px-5 py-3">
-                          <span className="font-mono text-xs">{f.origin}</span>
-                          <span className="mx-2 text-zinc-400">→</span>
-                          <span className="font-mono text-xs">
-                            {f.destination}
-                          </span>
-                        </td>
-                        <td className="px-5 py-3">
-                          {fmtLocal(f.scheduled_depart_iso, tz)}
-                        </td>
-                        <td className="px-5 py-3">
-                          {fmtLocal(f.scheduled_arrive_iso, tz)}
-                        </td>
-                        <td className="px-5 py-3 font-mono text-xs">
-                          {f.schedule_key}
-                        </td>
-                      </tr>
-                    ))
-                  )}
-                </tbody>
-              </table>
-            </div>
-          </div>
+          <FlightsTable flights={flights} isLoading={isLoading} tz={tz} />
         </div>
       </main>
     </div>
