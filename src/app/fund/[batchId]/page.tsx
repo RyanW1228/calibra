@@ -9,9 +9,9 @@ import {
   useConnect,
   useDisconnect,
   usePublicClient,
+  useSwitchChain,
   useWriteContract,
 } from "wagmi";
-import { injected } from "wagmi/connectors";
 import {
   keccak256,
   parseUnits,
@@ -117,7 +117,6 @@ export default function FundBatchPage() {
   const [thresholds, setThresholds] = useState<
     { id: string; minutes: number }[]
   >([{ id: "t_1", minutes: 60 }]);
-
   const maxThresholds = 5;
 
   const [isSubmitting, setIsSubmitting] = useState(false);
@@ -129,10 +128,11 @@ export default function FundBatchPage() {
     return v || "UTC";
   }, [batch]);
 
-  const { address, isConnected } = useAccount();
+  const { isConnected } = useAccount();
   const chainId = useChainId();
-  const { connectAsync } = useConnect();
+  const { connectAsync, connectors } = useConnect();
   const { disconnect } = useDisconnect();
+  const { switchChainAsync } = useSwitchChain();
   const publicClient = usePublicClient();
   const { writeContractAsync } = useWriteContract();
 
@@ -152,7 +152,10 @@ export default function FundBatchPage() {
       try {
         const res = await fetch(
           `/api/batches/get?batchId=${encodeURIComponent(batchId)}`,
-          { method: "GET", cache: "no-store" },
+          {
+            method: "GET",
+            cache: "no-store",
+          },
         );
 
         const json = (await res.json()) as BatchGetResponse;
@@ -209,7 +212,7 @@ export default function FundBatchPage() {
       .slice(0, 16);
 
     setWindowEndLocal(local);
-  }, [endWhenAllLanded, windowStartLocal, flights, setWindowEndLocal]);
+  }, [endWhenAllLanded, windowStartLocal, flights]);
 
   const canContinue = useMemo(() => {
     const s = amountUsdc.trim();
@@ -223,41 +226,48 @@ export default function FundBatchPage() {
     const wsU = unixFromDatetimeLocal(ws);
     if (wsU === null) return false;
 
-    if (!endWhenAllLanded) {
-      const we = windowEndLocal.trim();
-      if (!we) return false;
+    const we = windowEndLocal.trim();
+    if (!we) return false;
 
-      const weU = unixFromDatetimeLocal(we);
-      if (weU === null) return false;
-      if (wsU >= weU) return false;
-    }
+    const weU = unixFromDatetimeLocal(we);
+    if (weU === null) return false;
+    if (wsU >= weU) return false;
 
-    const validThresholds = thresholds
-      .map((t) => t.minutes)
-      .filter((m) => Number.isFinite(m) && m > 0);
+    const uniq = Array.from(
+      new Set(
+        thresholds
+          .map((t) => t.minutes)
+          .filter((m) => Number.isFinite(m) && m > 0)
+          .map((m) => Math.floor(m)),
+      ),
+    ).sort((a, b) => a - b);
 
-    const uniq = Array.from(new Set(validThresholds)).sort((a, b) => a - b);
     if (uniq.length === 0) return false;
     if (uniq.length > maxThresholds) return false;
 
     return true;
-  }, [
-    amountUsdc,
-    windowStartLocal,
-    windowEndLocal,
-    endWhenAllLanded,
-    thresholds,
-    maxThresholds,
-  ]);
+  }, [amountUsdc, windowStartLocal, windowEndLocal, thresholds]);
 
-  async function ensureConnected() {
-    if (isConnected) return;
-    await connectAsync({ connector: injected() });
+  async function ensureWalletReady() {
+    if (!isConnected) {
+      const connector = connectors[0];
+      if (!connector) throw new Error("No wallet connector available");
+      await connectAsync({ connector });
+    }
+
+    if (chainId !== ADI_TESTNET_CHAIN_ID) {
+      await switchChainAsync({ chainId: ADI_TESTNET_CHAIN_ID });
+    }
   }
 
   async function onContinue() {
     setTxError(null);
     setTxHash(null);
+
+    if (!canContinue) {
+      setTxError("Missing or invalid inputs");
+      return;
+    }
 
     if (!batchId) {
       setTxError("Missing batchId");
@@ -269,24 +279,14 @@ export default function FundBatchPage() {
       return;
     }
 
-    const amtStr = amountUsdc.trim();
-    const ws = unixFromDatetimeLocal(windowStartLocal.trim());
-    if (!amtStr || ws === null) {
-      setTxError("Missing inputs");
+    const wsU = unixFromDatetimeLocal(windowStartLocal.trim());
+    const weU = unixFromDatetimeLocal(windowEndLocal.trim());
+    if (wsU === null || weU === null) {
+      setTxError("Invalid time inputs");
       return;
     }
 
-    const we = endWhenAllLanded
-      ? unixFromDatetimeLocal(windowEndLocal.trim())
-      : unixFromDatetimeLocal(windowEndLocal.trim());
-
-    if (we === null) {
-      setTxError("Missing inputs");
-      return;
-    }
-
-    const amount = parseUnits(amtStr, 6);
-
+    const amount = parseUnits(amountUsdc.trim(), 6);
     const batchIdHash = keccak256(toBytes(batchId));
 
     const seedBytes = new Uint8Array(32);
@@ -317,21 +317,14 @@ export default function FundBatchPage() {
     try {
       setIsSubmitting(true);
 
-      await ensureConnected();
-
-      if (chainId !== ADI_TESTNET_CHAIN_ID) {
-        setTxError(
-          `Wrong network (chainId=${chainId}). Switch to ADI Testnet.`,
-        );
-        setIsSubmitting(false);
-        return;
-      }
+      await ensureWalletReady();
 
       const approveHash = await writeContractAsync({
         address: MOCK_USDC,
         abi: USDC_ABI,
         functionName: "approve",
         args: [CALIBRA_BATCHES, amount],
+        chainId: ADI_TESTNET_CHAIN_ID,
       });
 
       await publicClient.waitForTransactionReceipt({ hash: approveHash });
@@ -340,7 +333,15 @@ export default function FundBatchPage() {
         address: CALIBRA_BATCHES,
         abi: CALIBRA_BATCHES_ABI,
         functionName: "fundBatch",
-        args: [batchIdHash, BigInt(ws), BigInt(we), seedHash, specHash, amount],
+        args: [
+          batchIdHash,
+          BigInt(wsU),
+          BigInt(weU),
+          seedHash,
+          specHash,
+          amount,
+        ],
+        chainId: ADI_TESTNET_CHAIN_ID,
       });
 
       await publicClient.waitForTransactionReceipt({ hash: fundHash });
@@ -348,7 +349,6 @@ export default function FundBatchPage() {
       localStorage.setItem(seedLocalStorageKey(batchId), seed);
 
       setTxHash(fundHash);
-
       router.push("/");
     } catch (e: any) {
       setTxError(e?.shortMessage ?? e?.message ?? "Transaction failed");
@@ -381,7 +381,17 @@ export default function FundBatchPage() {
                 </button>
               ) : (
                 <button
-                  onClick={() => ensureConnected()}
+                  onClick={async () => {
+                    try {
+                      await ensureWalletReady();
+                    } catch (e: any) {
+                      setTxError(
+                        e?.shortMessage ??
+                          e?.message ??
+                          "Failed to connect wallet",
+                      );
+                    }
+                  }}
                   className="inline-flex h-9 items-center justify-center rounded-full bg-zinc-900 px-4 text-xs font-medium text-white transition hover:bg-zinc-800 dark:bg-zinc-50 dark:text-zinc-900 dark:hover:bg-zinc-200"
                 >
                   Connect Wallet
@@ -470,8 +480,6 @@ export default function FundBatchPage() {
             isLoading={isLoading}
             isSubmitting={isSubmitting}
             onContinue={onContinue}
-            isConnected={isConnected}
-            address={address}
           />
 
           <FlightsTable flights={flights} isLoading={isLoading} tz={tz} />
