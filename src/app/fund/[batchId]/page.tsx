@@ -112,9 +112,13 @@ export default function FundBatchPage() {
   const [windowStartLocal, setWindowStartLocal] = useState("");
   const [windowEndLocal, setWindowEndLocal] = useState("");
 
-  const [wantArriveLe60, setWantArriveLe60] = useState(true);
-  const [wantArriveGt60, setWantArriveGt60] = useState(true);
-  const [wantCancelled, setWantCancelled] = useState(true);
+  const [endWhenAllLanded, setEndWhenAllLanded] = useState(false);
+
+  const [thresholds, setThresholds] = useState<
+    { id: string; minutes: number }[]
+  >([{ id: "t_1", minutes: 60 }]);
+
+  const maxThresholds = 5;
 
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [txError, setTxError] = useState<string | null>(null);
@@ -178,6 +182,35 @@ export default function FundBatchPage() {
     };
   }, [batchId]);
 
+  useEffect(() => {
+    if (!endWhenAllLanded) return;
+    if (!windowStartLocal.trim()) return;
+
+    const wsU = unixFromDatetimeLocal(windowStartLocal.trim());
+    if (wsU === null) return;
+
+    const arriveTimes = flights
+      .map((f) => f.scheduled_arrive_iso)
+      .filter((s): s is string => typeof s === "string" && s.length > 0)
+      .map((s) => new Date(s).getTime())
+      .filter((ms) => Number.isFinite(ms));
+
+    if (arriveTimes.length === 0) return;
+
+    const latestArriveMs = Math.max(...arriveTimes);
+    const latestArriveU = Math.floor(latestArriveMs / 1000);
+
+    const bufferSeconds = 6 * 60 * 60;
+    const autoEndU = Math.max(wsU + 60, latestArriveU + bufferSeconds);
+
+    const d = new Date(autoEndU * 1000);
+    const local = new Date(d.getTime() - d.getTimezoneOffset() * 60 * 1000)
+      .toISOString()
+      .slice(0, 16);
+
+    setWindowEndLocal(local);
+  }, [endWhenAllLanded, windowStartLocal, flights, setWindowEndLocal]);
+
   const canContinue = useMemo(() => {
     const s = amountUsdc.trim();
     if (!s) return false;
@@ -185,25 +218,36 @@ export default function FundBatchPage() {
     if (!Number.isFinite(n) || n <= 0) return false;
 
     const ws = windowStartLocal.trim();
-    const we = windowEndLocal.trim();
-    if (!ws || !we) return false;
+    if (!ws) return false;
 
     const wsU = unixFromDatetimeLocal(ws);
-    const weU = unixFromDatetimeLocal(we);
-    if (wsU === null || weU === null) return false;
-    if (wsU >= weU) return false;
+    if (wsU === null) return false;
 
-    const anyOutcome = wantArriveLe60 || wantArriveGt60 || wantCancelled;
-    if (!anyOutcome) return false;
+    if (!endWhenAllLanded) {
+      const we = windowEndLocal.trim();
+      if (!we) return false;
+
+      const weU = unixFromDatetimeLocal(we);
+      if (weU === null) return false;
+      if (wsU >= weU) return false;
+    }
+
+    const validThresholds = thresholds
+      .map((t) => t.minutes)
+      .filter((m) => Number.isFinite(m) && m > 0);
+
+    const uniq = Array.from(new Set(validThresholds)).sort((a, b) => a - b);
+    if (uniq.length === 0) return false;
+    if (uniq.length > maxThresholds) return false;
 
     return true;
   }, [
     amountUsdc,
     windowStartLocal,
     windowEndLocal,
-    wantArriveLe60,
-    wantArriveGt60,
-    wantCancelled,
+    endWhenAllLanded,
+    thresholds,
+    maxThresholds,
   ]);
 
   async function ensureConnected() {
@@ -227,8 +271,16 @@ export default function FundBatchPage() {
 
     const amtStr = amountUsdc.trim();
     const ws = unixFromDatetimeLocal(windowStartLocal.trim());
-    const we = unixFromDatetimeLocal(windowEndLocal.trim());
-    if (!amtStr || ws === null || we === null) {
+    if (!amtStr || ws === null) {
+      setTxError("Missing inputs");
+      return;
+    }
+
+    const we = endWhenAllLanded
+      ? unixFromDatetimeLocal(windowEndLocal.trim())
+      : unixFromDatetimeLocal(windowEndLocal.trim());
+
+    if (we === null) {
       setTxError("Missing inputs");
       return;
     }
@@ -242,14 +294,24 @@ export default function FundBatchPage() {
     const seed = toHex(seedBytes) as Hex;
     const seedHash = keccak256(seed);
 
+    const uniqThresholdMinutes = Array.from(
+      new Set(
+        thresholds
+          .map((t) => t.minutes)
+          .filter((m) => Number.isFinite(m) && m > 0)
+          .map((m) => Math.floor(m)),
+      ),
+    )
+      .sort((a, b) => a - b)
+      .slice(0, maxThresholds);
+
     const spec = JSON.stringify({
       version: 1,
-      outcomes: {
-        arrive_le_60: wantArriveLe60,
-        arrive_gt_60: wantArriveGt60,
-        cancelled: wantCancelled,
-      },
+      end_when_all_landed: endWhenAllLanded,
+      thresholds_minutes: uniqThresholdMinutes,
+      includes_flight_does_not_arrive: true,
     });
+
     const specHash = keccak256(toBytes(spec));
 
     try {
@@ -394,12 +456,11 @@ export default function FundBatchPage() {
             setWindowStartLocal={setWindowStartLocal}
             windowEndLocal={windowEndLocal}
             setWindowEndLocal={setWindowEndLocal}
-            wantArriveLe60={wantArriveLe60}
-            setWantArriveLe60={setWantArriveLe60}
-            wantArriveGt60={wantArriveGt60}
-            setWantArriveGt60={setWantArriveGt60}
-            wantCancelled={wantCancelled}
-            setWantCancelled={setWantCancelled}
+            endWhenAllLanded={endWhenAllLanded}
+            setEndWhenAllLanded={setEndWhenAllLanded}
+            thresholds={thresholds}
+            setThresholds={setThresholds}
+            maxThresholds={maxThresholds}
           />
 
           <FundAmountCard
