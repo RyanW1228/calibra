@@ -3,6 +3,10 @@
 
 import React, { useEffect, useMemo, useState } from "react";
 import { useParams, useRouter } from "next/navigation";
+import BatchFlightsTable, {
+  type BatchFlightRow,
+  type BatchPredictionRow,
+} from "./components/BatchFlightsTable";
 
 type BatchFlight = {
   schedule_key: string;
@@ -86,7 +90,7 @@ export default function BatchPage() {
 
       try {
         const res = await fetch(
-          `/api/batches/get?batchId=${encodeURIComponent(batchId)}`,
+          `/api/batches/get-enriched?batchId=${encodeURIComponent(batchId)}`,
           { method: "GET", cache: "no-store" },
         );
 
@@ -160,6 +164,14 @@ export default function BatchPage() {
     loadPredictions();
   }, [batchId]);
 
+  const flightRows = useMemo(() => {
+    return flights as unknown as BatchFlightRow[];
+  }, [flights]);
+
+  const predictionRows = useMemo(() => {
+    return predictions as unknown as BatchPredictionRow[];
+  }, [predictions]);
+
   return (
     <div className="flex min-h-screen items-center justify-center bg-zinc-50 font-sans dark:bg-black">
       <main className="w-full max-w-6xl px-6 py-12">
@@ -181,6 +193,14 @@ export default function BatchPage() {
               >
                 Back
               </button>
+
+              <button
+                onClick={loadPredictions}
+                disabled={predLoading}
+                className="inline-flex h-9 items-center justify-center rounded-full border border-zinc-200 bg-white px-4 text-xs font-medium text-zinc-900 transition hover:bg-zinc-50 disabled:opacity-60 dark:border-zinc-800 dark:bg-zinc-950 dark:text-zinc-50 dark:hover:bg-black"
+              >
+                {predLoading ? "Loading…" : "Refresh Predictions"}
+              </button>
             </div>
           </div>
 
@@ -188,6 +208,12 @@ export default function BatchPage() {
             <div className="mt-6 rounded-xl border border-red-200 bg-red-50 p-4 text-sm text-red-700 dark:border-red-900/50 dark:bg-red-950/30 dark:text-red-200">
               <div className="font-medium">Error</div>
               <div className="mt-1">{error}</div>
+            </div>
+          ) : null}
+
+          {predError ? (
+            <div className="mt-6 rounded-xl border border-zinc-200 bg-white p-4 text-sm text-zinc-700 dark:border-zinc-800 dark:bg-zinc-950 dark:text-zinc-200">
+              {predError}
             </div>
           ) : null}
 
@@ -225,148 +251,26 @@ export default function BatchPage() {
           </div>
 
           <div className="mt-8 rounded-2xl border border-zinc-200 p-5 dark:border-zinc-800">
-            <div className="text-sm font-semibold text-zinc-900 dark:text-zinc-50">
-              Flights
-            </div>
-
-            <div className="mt-4 overflow-x-auto rounded-xl border border-zinc-200 dark:border-zinc-800">
-              <table className="min-w-full text-left text-sm">
-                <thead className="bg-zinc-50 text-xs text-zinc-500 dark:bg-zinc-900 dark:text-zinc-400">
-                  <tr>
-                    <th className="px-4 py-3">Flight</th>
-                    <th className="px-4 py-3">Route</th>
-                    <th className="px-4 py-3">Scheduled Depart</th>
-                    <th className="px-4 py-3">Scheduled Arrive</th>
-                    <th className="px-4 py-3">Schedule Key</th>
-                  </tr>
-                </thead>
-                <tbody className="divide-y divide-zinc-200 dark:divide-zinc-800">
-                  {isLoading ? (
-                    <tr>
-                      <td
-                        className="px-4 py-4 text-zinc-600 dark:text-zinc-300"
-                        colSpan={5}
-                      >
-                        Loading…
-                      </td>
-                    </tr>
-                  ) : flights.length === 0 ? (
-                    <tr>
-                      <td
-                        className="px-4 py-4 text-zinc-600 dark:text-zinc-300"
-                        colSpan={5}
-                      >
-                        No flights found.
-                      </td>
-                    </tr>
-                  ) : (
-                    flights.map((f) => (
-                      <tr key={f.schedule_key}>
-                        <td className="px-4 py-3 text-zinc-900 dark:text-zinc-50">
-                          {f.airline} {f.flight_number}
-                        </td>
-                        <td className="px-4 py-3 text-zinc-700 dark:text-zinc-200">
-                          {f.origin} → {f.destination}
-                        </td>
-                        <td className="px-4 py-3 text-zinc-700 dark:text-zinc-200">
-                          {fmtIsoLocal(f.scheduled_depart_iso)}
-                        </td>
-                        <td className="px-4 py-3 text-zinc-700 dark:text-zinc-200">
-                          {fmtIsoLocal(f.scheduled_arrive_iso)}
-                        </td>
-                        <td className="px-4 py-3 font-mono text-xs text-zinc-600 dark:text-zinc-300">
-                          {f.schedule_key}
-                        </td>
-                      </tr>
-                    ))
-                  )}
-                </tbody>
-              </table>
-            </div>
-          </div>
-
-          <div className="mt-8 rounded-2xl border border-zinc-200 p-5 dark:border-zinc-800">
             <div className="flex items-center justify-between gap-3">
               <div className="text-sm font-semibold text-zinc-900 dark:text-zinc-50">
-                Predictions
+                Flights + Predictions
               </div>
 
-              <button
-                onClick={loadPredictions}
-                disabled={predLoading}
-                className="inline-flex h-8 items-center justify-center rounded-lg border border-zinc-200 bg-white px-3 text-xs font-medium text-zinc-900 transition hover:bg-zinc-50 disabled:opacity-60 dark:border-zinc-800 dark:bg-zinc-950 dark:text-zinc-50 dark:hover:bg-black"
-              >
-                {predLoading ? "Loading…" : "Refresh"}
-              </button>
-            </div>
-
-            {predError ? (
-              <div className="mt-4 rounded-xl border border-zinc-200 bg-white p-4 text-sm text-zinc-700 dark:border-zinc-800 dark:bg-zinc-950 dark:text-zinc-200">
-                {predError}
+              <div className="text-xs text-zinc-500 dark:text-zinc-400">
+                Created:{" "}
+                <span className="font-mono">
+                  {fmtIsoLocal(batch?.created_at ?? null)}
+                </span>
               </div>
-            ) : null}
-
-            <div className="mt-4 overflow-x-auto rounded-xl border border-zinc-200 dark:border-zinc-800">
-              <table className="min-w-full text-left text-sm">
-                <thead className="bg-zinc-50 text-xs text-zinc-500 dark:bg-zinc-900 dark:text-zinc-400">
-                  <tr>
-                    <th className="px-4 py-3">Schedule Key</th>
-                    <th className="px-4 py-3">Model</th>
-                    <th className="px-4 py-3">Outcome</th>
-                    <th className="px-4 py-3">Confidence</th>
-                    <th className="px-4 py-3">Created</th>
-                  </tr>
-                </thead>
-                <tbody className="divide-y divide-zinc-200 dark:divide-zinc-800">
-                  {predLoading ? (
-                    <tr>
-                      <td
-                        className="px-4 py-4 text-zinc-600 dark:text-zinc-300"
-                        colSpan={5}
-                      >
-                        Loading…
-                      </td>
-                    </tr>
-                  ) : predictions.length === 0 ? (
-                    <tr>
-                      <td
-                        className="px-4 py-4 text-zinc-600 dark:text-zinc-300"
-                        colSpan={5}
-                      >
-                        No predictions yet.
-                      </td>
-                    </tr>
-                  ) : (
-                    predictions.map((p) => (
-                      <tr key={p.id}>
-                        <td className="px-4 py-3 font-mono text-xs text-zinc-600 dark:text-zinc-300">
-                          {p.schedule_key}
-                        </td>
-                        <td className="px-4 py-3 text-zinc-700 dark:text-zinc-200">
-                          {p.model ?? "—"}
-                        </td>
-                        <td className="px-4 py-3 text-zinc-700 dark:text-zinc-200">
-                          {p.outcome ?? "—"}
-                        </td>
-                        <td className="px-4 py-3 text-zinc-700 dark:text-zinc-200">
-                          {typeof p.confidence === "number"
-                            ? p.confidence.toFixed(3)
-                            : "—"}
-                        </td>
-                        <td className="px-4 py-3 text-zinc-700 dark:text-zinc-200">
-                          {fmtIsoLocal(p.created_at)}
-                        </td>
-                      </tr>
-                    ))
-                  )}
-                </tbody>
-              </table>
             </div>
 
-            <div className="mt-3 text-xs text-zinc-500 dark:text-zinc-400">
-              This page loads predictions from{" "}
-              <span className="font-mono">/api/predictions/list</span>.
-            </div>
+            <BatchFlightsTable
+              flights={flightRows}
+              predictions={predictionRows}
+              isLoading={isLoading}
+              displayTimeZone={tz}
+              fallbackStatus={batch?.status ?? null}
+            />
           </div>
         </div>
       </main>
