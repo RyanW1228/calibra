@@ -57,6 +57,14 @@ function outcomeLabelsFromThresholds(raw: OutcomeThreshold[]) {
   return labels;
 }
 
+function toDatetimeLocalFromUnixSeconds(u: number) {
+  const d = new Date(u * 1000);
+  const local = new Date(d.getTime() - d.getTimezoneOffset() * 60 * 1000)
+    .toISOString()
+    .slice(0, 16);
+  return local;
+}
+
 export default function BatchParamsCard({
   windowStartLocal,
   setWindowStartLocal,
@@ -94,6 +102,16 @@ export default function BatchParamsCard({
     );
   };
 
+  const startNow = () => {
+    const nowU = Math.floor(Date.now() / 1000);
+    setWindowStartLocal(toDatetimeLocalFromUnixSeconds(nowU));
+  };
+
+  const startInOneHour = () => {
+    const u = Math.floor(Date.now() / 1000) + 60 * 60;
+    setWindowStartLocal(toDatetimeLocalFromUnixSeconds(u));
+  };
+
   return (
     <div className="mt-8 rounded-2xl border border-zinc-200 p-5 dark:border-zinc-800">
       <div className="flex flex-col gap-2">
@@ -112,6 +130,33 @@ export default function BatchParamsCard({
               type="datetime-local"
               className="h-10 w-full rounded-xl border border-zinc-200 bg-white px-4 text-sm text-zinc-900 outline-none focus:border-zinc-400 dark:border-zinc-800 dark:bg-zinc-950 dark:text-zinc-50 dark:focus:border-zinc-600"
             />
+
+            <label className="mt-1 flex items-center gap-2 text-sm text-zinc-900 dark:text-zinc-50">
+              <input
+                type="checkbox"
+                checked={false}
+                onChange={(e) => {
+                  if (e.target.checked) startNow();
+                }}
+              />
+              Start immediately
+            </label>
+
+            <label className="mt-1 flex items-center gap-2 text-sm text-zinc-900 dark:text-zinc-50">
+              <input
+                type="checkbox"
+                checked={false}
+                onChange={(e) => {
+                  if (e.target.checked) startInOneHour();
+                }}
+              />
+              Start in one hour
+            </label>
+
+            <div className="text-xs text-zinc-500 dark:text-zinc-400">
+              Tip: these set the start time once; you can still edit the field
+              manually after.
+            </div>
           </div>
 
           <div className="flex flex-col gap-2">

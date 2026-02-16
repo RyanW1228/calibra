@@ -346,6 +346,14 @@ export default function FundBatchPage() {
 
       await publicClient.waitForTransactionReceipt({ hash: fundHash });
 
+      try {
+        await fetch("/api/batches/mark-funded", {
+          method: "POST",
+          headers: { "content-type": "application/json" },
+          body: JSON.stringify({ batchId }),
+        });
+      } catch {}
+
       localStorage.setItem(seedLocalStorageKey(batchId), seed);
 
       setTxHash(fundHash);

@@ -12,9 +12,7 @@ export async function GET(req: Request) {
       Math.min(100, Number.isFinite(limitRaw) ? limitRaw : 25),
     );
 
-    const statusesCsv = (
-      url.searchParams.get("statuses") ?? "active,created"
-    ).trim();
+    const statusesCsv = (url.searchParams.get("statuses") ?? "funded").trim();
     const statuses = statusesCsv
       .split(",")
       .map((s) => s.trim())
