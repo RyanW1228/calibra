@@ -1,3 +1,4 @@
+// calibra/src/app/api/batches/get/route.ts
 import { NextResponse } from "next/server";
 import { supabaseServer } from "@/lib/supabaseServer";
 
@@ -17,7 +18,9 @@ export async function GET(req: Request) {
 
     const { data: batch, error: batchErr } = await sb
       .from("batches")
-      .select("id, display_time_zone, flight_count, status, created_at")
+      .select(
+        "id, display_time_zone, flight_count, status, created_at, search_payload, included_schedule_keys",
+      )
       .eq("id", batchId)
       .single();
 

@@ -1,4 +1,4 @@
-// app/page.tsx
+// app/builder/page.tsx
 "use client";
 
 import React, { useState } from "react";
@@ -96,6 +96,8 @@ async function postSearch(payload: any): Promise<SearchResponse> {
 
 async function postCreateBatch(payload: {
   displayTimeZone: string;
+  search: Record<string, unknown>;
+  includedScheduleKeys: string[];
   flights: Array<{
     scheduleKey: string;
     airline: string;
@@ -139,6 +141,7 @@ export default function Home() {
   const [error, setError] = useState<string | null>(null);
 
   const [batchRows, setBatchRows] = useState<BatchRow[]>([]);
+  const [lastSearchPayload, setLastSearchPayload] = useState<any | null>(null);
 
   async function onSearch(payloadV1: SearchPayloadV1) {
     setIsLoading(true);
@@ -180,7 +183,7 @@ export default function Home() {
         limit: Math.max(1, Math.min(200, payloadV1.limit)),
       };
 
-      console.log("[/api/flights/search] payload", payload);
+      setLastSearchPayload(payload);
 
       const json = await postSearch(payload);
 
@@ -246,12 +249,19 @@ export default function Home() {
   async function onCreateBatch(selected: BatchRow[]) {
     if (selected.length === 0) return;
 
+    if (!lastSearchPayload) {
+      setError("Run a search first (missing search payload).");
+      return;
+    }
+
     setIsLoading(true);
     setError(null);
 
     try {
       const payload = {
         displayTimeZone,
+        search: lastSearchPayload as Record<string, unknown>,
+        includedScheduleKeys: selected.map((r) => r.scheduleKey),
         flights: selected.map((r) => ({
           scheduleKey: r.scheduleKey,
           airline: r.airline,

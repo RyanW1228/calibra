@@ -8,6 +8,8 @@ type BatchRow = {
   flight_count: number;
   status: string;
   created_at: string;
+  search_payload: any | null;
+  included_schedule_keys: string[] | null;
 };
 
 type BatchFlightRow = {
@@ -232,7 +234,9 @@ export async function GET(req: Request) {
 
     const { data: batch, error: batchErr } = await sb
       .from("batches")
-      .select("id, display_time_zone, flight_count, status, created_at")
+      .select(
+        "id, display_time_zone, flight_count, status, created_at, search_payload, included_schedule_keys",
+      )
       .eq("id", batchId)
       .single();
 

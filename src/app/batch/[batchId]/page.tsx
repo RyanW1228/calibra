@@ -8,16 +8,6 @@ import BatchFlightsTable, {
   type BatchPredictionRow,
 } from "./components/BatchFlightsTable";
 
-type BatchFlight = {
-  schedule_key: string;
-  airline: string;
-  flight_number: string;
-  origin: string;
-  destination: string;
-  scheduled_depart_iso: string | null;
-  scheduled_arrive_iso: string | null;
-};
-
 type BatchGetResponse =
   | {
       ok: true;
@@ -28,7 +18,7 @@ type BatchGetResponse =
         status: string;
         created_at: string;
       };
-      flights: BatchFlight[];
+      flights: BatchFlightRow[];
     }
   | { ok: false; error: string; details?: unknown };
 
@@ -64,7 +54,7 @@ export default function BatchPage() {
   const [error, setError] = useState<string | null>(null);
 
   const [batch, setBatch] = useState<BatchInfo | null>(null);
-  const [flights, setFlights] = useState<BatchFlight[]>([]);
+  const [flights, setFlights] = useState<BatchFlightRow[]>([]);
 
   const [predLoading, setPredLoading] = useState(false);
   const [predError, setPredError] = useState<string | null>(null);
@@ -164,12 +154,13 @@ export default function BatchPage() {
     loadPredictions();
   }, [batchId]);
 
-  const flightRows = useMemo(() => {
-    return flights as unknown as BatchFlightRow[];
-  }, [flights]);
-
   const predictionRows = useMemo(() => {
-    return predictions as unknown as BatchPredictionRow[];
+    return predictions.map((p) => ({
+      schedule_key: p.schedule_key,
+      outcome: p.outcome,
+      confidence: p.confidence,
+      created_at: p.created_at,
+    })) satisfies BatchPredictionRow[];
   }, [predictions]);
 
   return (
@@ -265,11 +256,10 @@ export default function BatchPage() {
             </div>
 
             <BatchFlightsTable
-              flights={flightRows}
+              flights={flights}
               predictions={predictionRows}
               isLoading={isLoading}
               displayTimeZone={tz}
-              fallbackStatus={batch?.status ?? null}
             />
           </div>
         </div>

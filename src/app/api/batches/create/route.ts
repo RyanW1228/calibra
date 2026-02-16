@@ -1,8 +1,17 @@
+// calibra/src/app/api/batches/create/route.ts
 import { NextResponse } from "next/server";
 import { supabaseServer } from "@/lib/supabaseServer";
 
 type CreateBatchRequest = {
   displayTimeZone: string;
+
+  // NEW: store the exact search used to generate the flight list
+  search: Record<string, unknown>;
+
+  // NEW: only these schedule_keys are considered included in the batch
+  includedScheduleKeys: string[];
+
+  // keep existing: we still store the selected flights themselves
   flights: Array<{
     scheduleKey: string;
     airline: string;
@@ -13,6 +22,11 @@ type CreateBatchRequest = {
     scheduledArriveISO?: string;
   }>;
 };
+
+function cleanKey(s: unknown) {
+  if (typeof s !== "string") return "";
+  return s.trim();
+}
 
 export async function POST(req: Request) {
   let body: CreateBatchRequest;
@@ -26,11 +40,29 @@ export async function POST(req: Request) {
     );
   }
 
-  const { displayTimeZone, flights } = body;
+  const { displayTimeZone, flights, search, includedScheduleKeys } = body;
 
   if (!displayTimeZone) {
     return NextResponse.json(
       { ok: false, error: "Missing displayTimeZone" },
+      { status: 400 },
+    );
+  }
+
+  if (!search || typeof search !== "object") {
+    return NextResponse.json(
+      { ok: false, error: "Missing search payload" },
+      { status: 400 },
+    );
+  }
+
+  const included = Array.isArray(includedScheduleKeys)
+    ? includedScheduleKeys.map(cleanKey).filter(Boolean)
+    : [];
+
+  if (included.length === 0) {
+    return NextResponse.json(
+      { ok: false, error: "No includedScheduleKeys provided" },
       { status: 400 },
     );
   }
@@ -42,17 +74,30 @@ export async function POST(req: Request) {
     );
   }
 
+  // Ensure flights align with included keys
+  const includedSet = new Set(included);
+  const filteredFlights = flights.filter((f) => includedSet.has(f.scheduleKey));
+
+  if (filteredFlights.length === 0) {
+    return NextResponse.json(
+      { ok: false, error: "No provided flights matched includedScheduleKeys" },
+      { status: 400 },
+    );
+  }
+
   const sb = supabaseServer();
 
   //
-  // 1) Create batch
+  // 1) Create batch (now includes search + included keys)
   //
   const { data: batchRow, error: batchErr } = await sb
     .from("batches")
     .insert({
       display_time_zone: displayTimeZone,
-      flight_count: flights.length,
+      flight_count: filteredFlights.length,
       status: "draft",
+      search_payload: search,
+      included_schedule_keys: included,
     })
     .select("id")
     .single();
@@ -67,9 +112,9 @@ export async function POST(req: Request) {
   const batchId = batchRow.id as string;
 
   //
-  // 2) Insert flights
+  // 2) Insert flights (only included ones)
   //
-  const inserts = flights.map((f) => ({
+  const inserts = filteredFlights.map((f) => ({
     batch_id: batchId,
     schedule_key: f.scheduleKey,
     airline: f.airline,
