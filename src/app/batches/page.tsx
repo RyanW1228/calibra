@@ -129,7 +129,7 @@ export default function BatchesPage() {
 
                     <button
                       onClick={() =>
-                        router.push(`/fund/${encodeURIComponent(b.id)}`)
+                        router.push(`/batch/${encodeURIComponent(b.id)}`)
                       }
                       className="inline-flex h-8 items-center justify-center rounded-lg bg-emerald-600 px-3 text-xs font-medium text-white transition hover:bg-emerald-500"
                     >

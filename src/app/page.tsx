@@ -73,13 +73,13 @@ export default function HomePage() {
   function openBatch() {
     const id = batchId.trim();
     if (!id) return;
-    router.push(`/fund/${encodeURIComponent(id)}`);
+    router.push(`/batch/${encodeURIComponent(id)}`);
   }
 
   function openBatchById(id: string) {
     const clean = id.trim();
     if (!clean) return;
-    router.push(`/fund/${encodeURIComponent(clean)}`);
+    router.push(`/batch/${encodeURIComponent(id)}`);
   }
 
   async function loadActiveBatches() {
