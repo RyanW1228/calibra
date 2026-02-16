@@ -1,336 +1,305 @@
-// app/page.tsx
+// calibra/src/app/page.tsx
 "use client";
 
-import React, { useState } from "react";
+import React, { useEffect, useMemo, useState } from "react";
 import { useRouter } from "next/navigation";
-import Image from "next/image";
-import BatchPortfolioTable, {
-  type BatchRow,
-} from "./components/BatchPortfolioTable";
-import FlightFilters, {
-  type SearchPayloadV1,
-} from "./components/FlightFilters";
+import {
+  useAccount,
+  useChainId,
+  useConnect,
+  useDisconnect,
+  useSwitchChain,
+} from "wagmi";
+import type { Address } from "viem";
 
-type FlightResult = {
-  scheduleKey?: string;
-  id?: string; // fa_flight_id
-  airline?: string;
-  flightNumber?: string;
-  origin?: string;
-  destination?: string;
+const ADI_TESTNET_CHAIN_ID = 99999;
 
-  scheduledDepartISO?: string;
-  actualDepartISO?: string;
-  scheduledArriveISO?: string;
-  actualArriveISO?: string;
-  departureDelayMin?: number;
-  arrivalDelayMin?: number;
-
-  status?: string;
-
-  // Back-compat
-  departLocalISO?: string;
-  arriveLocalISO?: string;
+type ActiveBatchRow = {
+  id: string;
+  display_time_zone: string | null;
+  flight_count: number | null;
+  status: string | null;
+  created_at: string | null;
 };
 
-type SearchResponse =
-  | {
-      ok: true;
-      flights: FlightResult[];
-      raw?: unknown;
-    }
-  | {
-      ok: false;
-      error: string;
-      details?: unknown;
-    };
+type ListActiveBatchesResponse =
+  | { ok: true; batches: ActiveBatchRow[] }
+  | { ok: false; error: string; details?: unknown };
 
-function normalize(s: string) {
-  return s.trim().toUpperCase();
+function fmtDate(s?: string | null) {
+  if (!s) return "—";
+  const d = new Date(s);
+  const ms = d.getTime();
+  if (!Number.isFinite(ms)) return "—";
+  return d.toLocaleString();
 }
 
-function toYyyyMmDd(v: unknown): string {
-  if (typeof v !== "string") return "";
-  const s = v.trim();
-
-  // already YYYY-MM-DD
-  if (/^\d{4}-\d{2}-\d{2}$/.test(s)) return s;
-
-  // ISO string -> take date part
-  const m = s.match(/^(\d{4}-\d{2}-\d{2})T/);
-  if (m) return m[1];
-
-  return "";
-}
-
-function addDaysYyyyMmDd(dateISO: string, days: number): string {
-  if (!/^\d{4}-\d{2}-\d{2}$/.test(dateISO)) return "";
-  const [y, m, d] = dateISO.split("-").map((x) => Number(x));
-  const dt = new Date(Date.UTC(y, m - 1, d));
-  dt.setUTCDate(dt.getUTCDate() + days);
-  const yy = dt.getUTCFullYear();
-  const mm = String(dt.getUTCMonth() + 1).padStart(2, "0");
-  const dd = String(dt.getUTCDate()).padStart(2, "0");
-  return `${yy}-${mm}-${dd}`;
-}
-
-async function postSearch(payload: any): Promise<SearchResponse> {
-  const res = await fetch("/api/flights/search", {
-    method: "POST",
-    headers: { "content-type": "application/json" },
-    body: JSON.stringify(payload),
-  });
-
-  const json = (await res.json()) as SearchResponse;
-
-  if (!res.ok) {
-    return {
-      ok: false,
-      error: json.ok ? "Request failed" : json.error,
-      details: json,
-    };
-  }
-
-  return json;
-}
-
-async function postCreateBatch(payload: {
-  displayTimeZone: string;
-  flights: Array<{
-    scheduleKey: string;
-    airline: string;
-    flightNumber: string;
-    origin: string;
-    destination: string;
-    scheduledDepartISO?: string;
-    scheduledArriveISO?: string;
-  }>;
-}): Promise<
-  | { ok: true; batchId: string }
-  | { ok: false; error: string; details?: unknown }
-> {
-  const res = await fetch("/api/batches/create", {
-    method: "POST",
-    headers: { "content-type": "application/json" },
-    body: JSON.stringify(payload),
-  });
-
-  const json = (await res.json()) as
-    | { ok: true; batchId: string }
-    | { ok: false; error: string; details?: unknown };
-
-  if (!res.ok) {
-    return {
-      ok: false,
-      error: json.ok ? "Request failed" : json.error,
-      details: json,
-    };
-  }
-
-  return json;
-}
-
-export default function Home() {
+export default function HomePage() {
   const router = useRouter();
 
-  const [displayTimeZone, setDisplayTimeZone] = useState("UTC");
+  const { address, isConnected } = useAccount();
+  const chainId = useChainId();
+  const { connectAsync, connectors } = useConnect();
+  const { disconnect } = useDisconnect();
+  const { switchChainAsync } = useSwitchChain();
 
-  const [isLoading, setIsLoading] = useState(false);
-  const [error, setError] = useState<string | null>(null);
+  const [walletError, setWalletError] = useState<string | null>(null);
 
-  const [batchRows, setBatchRows] = useState<BatchRow[]>([]);
+  const [batchId, setBatchId] = useState("");
 
-  async function onSearch(payloadV1: SearchPayloadV1) {
-    setIsLoading(true);
-    setError(null);
+  const [activeLoading, setActiveLoading] = useState(true);
+  const [activeError, setActiveError] = useState<string | null>(null);
+  const [activeBatches, setActiveBatches] = useState<ActiveBatchRow[]>([]);
 
-    try {
-      if (payloadV1.mode === "lookup") {
-        setBatchRows([]);
-        setError("Lookup mode isn’t wired to the backend yet.");
-        return;
-      }
+  const addr = useMemo(() => {
+    if (!address) return null;
+    return address as Address;
+  }, [address]);
 
-      const origin = (payloadV1.origins?.[0] ?? "").trim();
-      const destination = (payloadV1.destinations?.[0] ?? "").trim();
-      const dateStart = toYyyyMmDd(payloadV1.dateStart);
-      let dateEnd = toYyyyMmDd(payloadV1.dateEnd);
+  async function ensureWalletReady() {
+    setWalletError(null);
 
-      if (!dateEnd && dateStart) {
-        dateEnd = addDaysYyyyMmDd(dateStart, 1);
-      }
+    if (!isConnected) {
+      const connector = connectors[0];
+      if (!connector) throw new Error("No wallet connector available");
+      await connectAsync({ connector });
+    }
 
-      if (!dateStart || !dateEnd) {
-        setBatchRows([]);
-        setError("Invalid dateStart/dateEnd (must be YYYY-MM-DD).");
-        return;
-      }
-
-      // carriers[] -> airlines
-      const airlines = Array.isArray(payloadV1.carriers)
-        ? payloadV1.carriers
-        : null;
-
-      const payload = {
-        origin: origin ? normalize(origin) : null,
-        destination: destination ? normalize(destination) : null,
-        dateStart,
-        dateEnd,
-        airlines: airlines && airlines.length ? airlines.map(normalize) : null,
-        limit: Math.max(1, Math.min(200, payloadV1.limit)),
-      };
-
-      console.log("[/api/flights/search] payload", payload);
-
-      const json = await postSearch(payload);
-
-      if (!json.ok) {
-        setBatchRows([]);
-        setError(json.error);
-        return;
-      }
-
-      const nextRows: BatchRow[] = (json.flights ?? [])
-        .map((f) => {
-          const a = (f.airline ?? "").trim();
-          const n = (f.flightNumber ?? "").trim();
-          const o = (f.origin ?? "").trim();
-          const d = (f.destination ?? "").trim();
-
-          if (!a || !n || !o || !d) return null;
-
-          const status = (f.status ?? "Scheduled").trim() || "Scheduled";
-
-          const scheduledDepartISO =
-            f.scheduledDepartISO ?? f.departLocalISO ?? undefined;
-          const scheduledArriveISO =
-            f.scheduledArriveISO ?? f.arriveLocalISO ?? undefined;
-
-          const scheduleKey = (f.scheduleKey ?? "").trim();
-          if (!scheduleKey) return null;
-
-          const row: BatchRow = {
-            scheduleKey,
-            airline: a,
-            flightNumber: n,
-            origin: o,
-            destination: d,
-
-            scheduledDepartISO,
-            actualDepartISO: f.actualDepartISO,
-            scheduledArriveISO,
-            actualArriveISO: f.actualArriveISO,
-            departureDelayMin: f.departureDelayMin,
-            arrivalDelayMin: f.arrivalDelayMin,
-
-            status,
-            included: true,
-
-            // optional debug / future enrichment, not used for identity
-            faFlightId: f.id,
-          };
-
-          return row;
-        })
-        .filter((x): x is BatchRow => x !== null);
-
-      setBatchRows(nextRows);
-    } catch (e: any) {
-      setBatchRows([]);
-      setError(e?.message ?? "Request failed");
-    } finally {
-      setIsLoading(false);
+    if (chainId !== ADI_TESTNET_CHAIN_ID) {
+      await switchChainAsync({ chainId: ADI_TESTNET_CHAIN_ID });
     }
   }
 
-  async function onCreateBatch(selected: BatchRow[]) {
-    if (selected.length === 0) return;
+  function openBatch() {
+    const id = batchId.trim();
+    if (!id) return;
+    router.push(`/fund/${encodeURIComponent(id)}`);
+  }
 
-    setIsLoading(true);
-    setError(null);
+  function openBatchById(id: string) {
+    const clean = id.trim();
+    if (!clean) return;
+    router.push(`/fund/${encodeURIComponent(clean)}`);
+  }
+
+  async function loadActiveBatches() {
+    setActiveLoading(true);
+    setActiveError(null);
 
     try {
-      const payload = {
-        displayTimeZone,
-        flights: selected.map((r) => ({
-          scheduleKey: r.scheduleKey,
-          airline: r.airline,
-          flightNumber: r.flightNumber,
-          origin: r.origin,
-          destination: r.destination,
-          scheduledDepartISO: r.scheduledDepartISO,
-          scheduledArriveISO: r.scheduledArriveISO,
-        })),
-      };
+      const res = await fetch("/api/batches/list-active?limit=25", {
+        method: "GET",
+        cache: "no-store",
+      });
 
-      const json = await postCreateBatch(payload);
+      const json = (await res.json()) as ListActiveBatchesResponse;
 
-      if (!json.ok) {
-        setError(json.error);
+      if (!res.ok || !json.ok) {
+        setActiveBatches([]);
+        setActiveError(json.ok ? "Request failed" : json.error);
         return;
       }
 
-      router.push(`/fund/${encodeURIComponent(json.batchId)}`);
+      setActiveBatches(Array.isArray(json.batches) ? json.batches : []);
     } catch (e: any) {
-      setError(e?.message ?? "Create batch failed");
+      setActiveBatches([]);
+      setActiveError(e?.message ?? "Failed to load active batches");
     } finally {
-      setIsLoading(false);
+      setActiveLoading(false);
     }
   }
+
+  useEffect(() => {
+    loadActiveBatches();
+  }, []);
 
   return (
     <div className="flex min-h-screen items-center justify-center bg-zinc-50 font-sans dark:bg-black">
-      <main className="w-full max-w-7xl px-6 py-12">
+      <main className="w-full max-w-2xl px-6 py-12">
         <div className="rounded-2xl bg-white p-8 shadow-sm dark:bg-zinc-950">
           <div className="flex items-start justify-between gap-6">
             <div className="flex flex-col gap-2">
-              <div className="flex items-center gap-3">
-                <Image
-                  className="dark:invert"
-                  src="/next.svg"
-                  alt="Next.js logo"
-                  width={72}
-                  height={16}
-                  priority
-                />
-                <span className="text-xs font-medium text-zinc-500 dark:text-zinc-400">
-                  Calibra
-                </span>
-              </div>
-
               <h1 className="text-2xl font-semibold tracking-tight text-zinc-950 dark:text-zinc-50">
-                Flight Filter → Batch Builder
+                Calibra
               </h1>
 
-              <p className="text-sm leading-6 text-zinc-600 dark:text-zinc-400">
-                Search flights and generate a normalized batch for downstream
-                processing.
+              <p className="text-sm text-zinc-600 dark:text-zinc-400">
+                Create and fund flight prediction batches.
               </p>
+            </div>
+
+            <div className="flex items-center gap-2">
+              {isConnected ? (
+                <>
+                  <div className="hidden flex-col items-end gap-1 sm:flex">
+                    <div className="text-[11px] text-zinc-500 dark:text-zinc-400">
+                      {addr ? (
+                        <span className="font-mono">
+                          {addr.slice(0, 6)}…{addr.slice(-4)}
+                        </span>
+                      ) : (
+                        "Connected"
+                      )}
+                    </div>
+                    <div className="text-[11px] text-zinc-500 dark:text-zinc-400">
+                      Chain:{" "}
+                      <span className="font-mono">
+                        {typeof chainId === "number" ? chainId : "—"}
+                      </span>
+                    </div>
+                  </div>
+
+                  <button
+                    onClick={async () => {
+                      try {
+                        await ensureWalletReady();
+                      } catch (e: any) {
+                        setWalletError(
+                          e?.shortMessage ??
+                            e?.message ??
+                            "Failed to switch chain",
+                        );
+                      }
+                    }}
+                    className="inline-flex h-9 items-center justify-center rounded-full border border-zinc-200 bg-white px-4 text-xs font-medium text-zinc-900 transition hover:bg-zinc-50 dark:border-zinc-800 dark:bg-zinc-950 dark:text-zinc-50 dark:hover:bg-black"
+                  >
+                    Switch to ADI
+                  </button>
+
+                  <button
+                    onClick={() => disconnect()}
+                    className="inline-flex h-9 items-center justify-center rounded-full border border-zinc-200 bg-white px-4 text-xs font-medium text-zinc-900 transition hover:bg-zinc-50 dark:border-zinc-800 dark:bg-zinc-950 dark:text-zinc-50 dark:hover:bg-black"
+                  >
+                    Disconnect
+                  </button>
+                </>
+              ) : (
+                <button
+                  onClick={async () => {
+                    try {
+                      await ensureWalletReady();
+                    } catch (e: any) {
+                      setWalletError(
+                        e?.shortMessage ??
+                          e?.message ??
+                          "Failed to connect wallet",
+                      );
+                    }
+                  }}
+                  className="inline-flex h-9 items-center justify-center rounded-full bg-zinc-900 px-4 text-xs font-medium text-white transition hover:bg-zinc-800 dark:bg-zinc-50 dark:text-zinc-900 dark:hover:bg-zinc-200"
+                >
+                  Connect Wallet
+                </button>
+              )}
             </div>
           </div>
 
-          <div className="mt-8">
-            <FlightFilters
-              isLoading={isLoading}
-              onSearch={onSearch}
-              displayTimeZone={displayTimeZone}
-              onDisplayTimeZoneChange={setDisplayTimeZone}
-              defaultOrigin="DEN"
-              defaultDestination="JFK"
-              defaultCarriersCsv=""
-              defaultLimit={25}
-            />
+          {walletError ? (
+            <div className="mt-6 rounded-xl border border-red-200 bg-red-50 p-4 text-sm text-red-700 dark:border-red-900/50 dark:bg-red-950/30 dark:text-red-200">
+              <div className="font-medium">Wallet Error</div>
+              <div className="mt-1 break-words">{walletError}</div>
+            </div>
+          ) : null}
+
+          {/* Create New Batch */}
+          <div className="mt-8 flex flex-col gap-3">
+            <div className="text-sm font-medium text-zinc-900 dark:text-zinc-50">
+              Start a new batch
+            </div>
+
+            <button
+              onClick={() => router.push("/builder")}
+              className="inline-flex h-10 items-center justify-center rounded-xl bg-zinc-900 px-5 text-sm font-medium text-white transition hover:bg-zinc-800 dark:bg-zinc-50 dark:text-zinc-900 dark:hover:bg-zinc-200"
+            >
+              Create New Batch
+            </button>
           </div>
 
-          <div className="mt-8">
-            <BatchPortfolioTable
-              rows={batchRows}
-              setRows={setBatchRows}
-              isLoading={isLoading}
-              error={error}
-              displayTimeZone={displayTimeZone}
-              onCreateBatch={onCreateBatch}
-            />
+          {/* Open Existing Batch */}
+          <div className="mt-10 flex flex-col gap-3">
+            <div className="text-sm font-medium text-zinc-900 dark:text-zinc-50">
+              Open existing batch
+            </div>
+
+            <div className="flex gap-2">
+              <input
+                value={batchId}
+                onChange={(e) => setBatchId(e.target.value)}
+                placeholder="Enter Batch ID"
+                className="h-10 flex-1 rounded-xl border border-zinc-200 bg-white px-4 text-sm text-zinc-900 outline-none focus:border-zinc-400 dark:border-zinc-800 dark:bg-zinc-950 dark:text-zinc-50 dark:focus:border-zinc-600"
+              />
+
+              <button
+                onClick={openBatch}
+                disabled={!batchId.trim()}
+                className="inline-flex h-10 items-center justify-center rounded-xl bg-emerald-600 px-5 text-sm font-medium text-white transition hover:bg-emerald-500 disabled:opacity-60"
+              >
+                Open
+              </button>
+            </div>
+
+            <div className="text-xs text-zinc-500 dark:text-zinc-400">
+              This will navigate to the funding page for the batch.
+            </div>
+
+            {/* Active Batches */}
+            <div className="mt-6 flex items-center justify-between">
+              <div className="text-sm font-semibold text-zinc-900 dark:text-zinc-50">
+                Active batches
+              </div>
+
+              <button
+                onClick={loadActiveBatches}
+                disabled={activeLoading}
+                className="inline-flex h-8 items-center justify-center rounded-full border border-zinc-200 bg-white px-3 text-xs font-medium text-zinc-900 transition hover:bg-zinc-50 disabled:opacity-60 dark:border-zinc-800 dark:bg-zinc-950 dark:text-zinc-50 dark:hover:bg-black"
+              >
+                {activeLoading ? "Loading…" : "Refresh"}
+              </button>
+            </div>
+
+            {activeError ? (
+              <div className="rounded-xl border border-red-200 bg-red-50 p-3 text-xs text-red-700 dark:border-red-900/50 dark:bg-red-950/30 dark:text-red-200">
+                {activeError}
+              </div>
+            ) : null}
+
+            <div className="rounded-2xl border border-zinc-200 bg-white p-3 dark:border-zinc-800 dark:bg-zinc-950">
+              {activeLoading ? (
+                <div className="text-sm text-zinc-600 dark:text-zinc-400">
+                  Loading…
+                </div>
+              ) : activeBatches.length === 0 ? (
+                <div className="text-sm text-zinc-600 dark:text-zinc-400">
+                  No active batches found.
+                </div>
+              ) : (
+                <div className="flex flex-col gap-2">
+                  {activeBatches.map((b) => (
+                    <div
+                      key={b.id}
+                      className="flex items-center justify-between rounded-lg border border-zinc-200 px-3 py-2 dark:border-zinc-800"
+                    >
+                      <div className="flex flex-col">
+                        <div className="text-sm font-medium text-zinc-900 dark:text-zinc-50">
+                          {b.id}
+                        </div>
+                        <div className="text-[11px] text-zinc-500 dark:text-zinc-400">
+                          {b.status ?? "—"} • {b.flight_count ?? 0} flights •{" "}
+                          {fmtDate(b.created_at)}
+                        </div>
+                      </div>
+
+                      <button
+                        onClick={() => openBatchById(b.id)}
+                        className="inline-flex h-8 items-center justify-center rounded-lg bg-emerald-600 px-3 text-xs font-medium text-white transition hover:bg-emerald-500"
+                      >
+                        Open
+                      </button>
+                    </div>
+                  ))}
+                </div>
+              )}
+            </div>
           </div>
         </div>
       </main>
