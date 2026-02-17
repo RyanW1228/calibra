@@ -41,6 +41,17 @@ type PredictionsResponse =
   | { ok: true; predictions: PredictionRow[] }
   | { ok: false; error: string; details?: unknown };
 
+type RefreshFlightsResponse =
+  | {
+      ok: true;
+      batch_id: string;
+      schedules_updated?: number;
+      flights_attempted?: number;
+      flights_updated?: number;
+      flights_failed?: number;
+    }
+  | { ok: false; error: string; retry_after_ms?: number; details?: unknown };
+
 function fmtIsoLocal(s: string | null) {
   if (!s) return "—";
   const d = new Date(s);
@@ -82,6 +93,29 @@ function fmtCountdown(ms: number) {
   return `${pad(hh)}:${pad(mm)}:${pad(ss)}`;
 }
 
+const UPDATE_COOLDOWN_MS = 30_000;
+
+function lastUpdateKey(batchId: string) {
+  return `calibra:batch_flights_last_update_ms:${batchId}`;
+}
+
+function readLastUpdateMs(batchId: string) {
+  try {
+    const raw = window.localStorage.getItem(lastUpdateKey(batchId));
+    if (!raw) return null;
+    const n = Number(raw);
+    return Number.isFinite(n) ? n : null;
+  } catch {
+    return null;
+  }
+}
+
+function writeLastUpdateMs(batchId: string, ms: number) {
+  try {
+    window.localStorage.setItem(lastUpdateKey(batchId), String(ms));
+  } catch {}
+}
+
 export default function BatchPage() {
   const router = useRouter();
   const params = useParams<{ batchId: string }>();
@@ -97,6 +131,10 @@ export default function BatchPage() {
   const [predError, setPredError] = useState<string | null>(null);
   const [predictions, setPredictions] = useState<PredictionRow[]>([]);
 
+  const [updateLoading, setUpdateLoading] = useState(false);
+  const [updateError, setUpdateError] = useState<string | null>(null);
+  const [lastUpdateMs, setLastUpdateMs] = useState<number | null>(null);
+
   const tz = useMemo(() => {
     const v = (batch?.display_time_zone ?? "UTC").toString();
     return v || "UTC";
@@ -109,52 +147,56 @@ export default function BatchPage() {
   }, []);
 
   useEffect(() => {
-    let alive = true;
+    if (!batchId) return;
+    const saved = readLastUpdateMs(batchId);
+    if (typeof saved === "number") setLastUpdateMs(saved);
+  }, [batchId]);
 
-    async function run() {
-      if (!batchId) {
-        setError("Missing batchId");
-        setIsLoading(false);
+  async function loadBatchEnriched(alive?: { current: boolean }) {
+    if (!batchId) {
+      setError("Missing batchId");
+      setIsLoading(false);
+      return;
+    }
+
+    setIsLoading(true);
+    setError(null);
+
+    try {
+      const res = await fetch(
+        `/api/batches/get-enriched?batchId=${encodeURIComponent(batchId)}`,
+        { method: "GET", cache: "no-store" },
+      );
+
+      const json = (await res.json()) as BatchGetResponse;
+
+      if (!res.ok || !json.ok) {
+        if (alive && !alive.current) return;
+        setBatch(null);
+        setFlights([]);
+        setError(json.ok ? "Request failed" : json.error);
         return;
       }
 
-      setIsLoading(true);
-      setError(null);
-
-      try {
-        const res = await fetch(
-          `/api/batches/get-enriched?batchId=${encodeURIComponent(batchId)}`,
-          { method: "GET", cache: "no-store" },
-        );
-
-        const json = (await res.json()) as BatchGetResponse;
-
-        if (!res.ok || !json.ok) {
-          if (!alive) return;
-          setBatch(null);
-          setFlights([]);
-          setError(json.ok ? "Request failed" : json.error);
-          return;
-        }
-
-        if (!alive) return;
-        setBatch(json.batch);
-        setFlights(Array.isArray(json.flights) ? json.flights : []);
-      } catch (e: any) {
-        if (!alive) return;
-        setBatch(null);
-        setFlights([]);
-        setError(e?.message ?? "Failed to load batch");
-      } finally {
-        if (!alive) return;
-        setIsLoading(false);
-      }
+      if (alive && !alive.current) return;
+      setBatch(json.batch);
+      setFlights(Array.isArray(json.flights) ? json.flights : []);
+    } catch (e: any) {
+      if (alive && !alive.current) return;
+      setBatch(null);
+      setFlights([]);
+      setError(e?.message ?? "Failed to load batch");
+    } finally {
+      if (alive && !alive.current) return;
+      setIsLoading(false);
     }
+  }
 
-    run();
-
+  useEffect(() => {
+    const alive = { current: true };
+    loadBatchEnriched(alive);
     return () => {
-      alive = false;
+      alive.current = false;
     };
   }, [batchId]);
 
@@ -196,6 +238,74 @@ export default function BatchPage() {
   useEffect(() => {
     loadPredictions();
   }, [batchId]);
+
+  async function handleUpdate() {
+    if (!batchId) return;
+
+    setUpdateError(null);
+
+    const last = lastUpdateMs ?? readLastUpdateMs(batchId);
+    const nextAllowedAt =
+      typeof last === "number" ? last + UPDATE_COOLDOWN_MS : 0;
+
+    if (nowMs < nextAllowedAt) {
+      const waitMs = nextAllowedAt - nowMs;
+      setUpdateError(
+        `Please wait ${Math.ceil(waitMs / 1000)}s before updating again.`,
+      );
+      return;
+    }
+
+    setUpdateLoading(true);
+
+    try {
+      // This endpoint must be the only place that calls AeroAPI and stores the result.
+      const res = await fetch(
+        `/api/batches/refresh-flights?batchId=${encodeURIComponent(batchId)}`,
+        { method: "POST" },
+      );
+
+      const json = (await res
+        .json()
+        .catch(() => null)) as RefreshFlightsResponse | null;
+
+      if (!res.ok || !json || json.ok === false) {
+        const msg =
+          json && typeof (json as any).error === "string"
+            ? (json as any).error
+            : "Update failed";
+
+        const retryMs =
+          json && typeof (json as any).retry_after_ms === "number"
+            ? Math.max(0, Math.ceil((json as any).retry_after_ms))
+            : null;
+
+        if (res.status === 429 && retryMs !== null) {
+          const t = Date.now();
+          const serverLast = t - (UPDATE_COOLDOWN_MS - retryMs);
+          setLastUpdateMs(serverLast);
+          writeLastUpdateMs(batchId, serverLast);
+          setUpdateError(
+            `Please wait ${Math.ceil(retryMs / 1000)}s before updating again.`,
+          );
+          return;
+        }
+
+        throw new Error(msg);
+      }
+
+      const t = Date.now();
+      setLastUpdateMs(t);
+      writeLastUpdateMs(batchId, t);
+
+      // Re-read latest snapshot from DB (should NOT call AeroAPI)
+      await Promise.all([loadBatchEnriched(), loadPredictions()]);
+    } catch (e: any) {
+      setUpdateError(e?.message ?? "Update failed");
+    } finally {
+      setUpdateLoading(false);
+    }
+  }
 
   const predictionRows = useMemo(() => {
     return predictions.map((p) => ({
@@ -269,6 +379,19 @@ export default function BatchPage() {
     };
   }, [nowMs, windowStartIso, windowEndIso]);
 
+  const nextAllowedMs =
+    typeof lastUpdateMs === "number" ? lastUpdateMs + UPDATE_COOLDOWN_MS : 0;
+
+  const updateDisabled =
+    isLoading || predLoading || updateLoading || nowMs < nextAllowedMs;
+
+  const updateMetaText =
+    typeof lastUpdateMs === "number"
+      ? nowMs < nextAllowedMs
+        ? `Next update in ${Math.ceil((nextAllowedMs - nowMs) / 1000)}s`
+        : `Last update: ${fmtIsoLocal(new Date(lastUpdateMs).toISOString())}`
+      : " ";
+
   return (
     <div className="flex min-h-screen items-center justify-center bg-zinc-50 font-sans dark:bg-black">
       <main className="w-full max-w-6xl px-6 py-12">
@@ -311,6 +434,12 @@ export default function BatchPage() {
           {predError ? (
             <div className="mt-6 rounded-xl border border-zinc-200 bg-white p-4 text-sm text-zinc-700 dark:border-zinc-800 dark:bg-zinc-950 dark:text-zinc-200">
               {predError}
+            </div>
+          ) : null}
+
+          {updateError ? (
+            <div className="mt-6 rounded-xl border border-red-200 bg-red-50 p-4 text-sm text-red-700 dark:border-red-900/50 dark:bg-red-950/30 dark:text-red-200">
+              {updateError}
             </div>
           ) : null}
 
@@ -406,6 +535,12 @@ export default function BatchPage() {
               isLoading={isLoading}
               displayTimeZone={tz}
               predictionColumns={predictionColumns}
+              onUpdate={handleUpdate}
+              updateDisabled={updateDisabled}
+              updateLabel={
+                updateLoading ? "Updating…" : "Update Flights + Predictions"
+              }
+              updateMetaText={updateMetaText}
             />
           </div>
         </div>

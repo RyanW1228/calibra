@@ -272,14 +272,6 @@ function computePredictionWindowFromSearchPayload(searchPayload: any | null): {
 
 export async function GET(req: Request) {
   try {
-    const apiKey = process.env.FLIGHTAWARE_API_KEY ?? "";
-    if (!apiKey) {
-      return NextResponse.json(
-        { ok: false, error: "Server missing FLIGHTAWARE_API_KEY" },
-        { status: 500 },
-      );
-    }
-
     const url = new URL(req.url);
     const batchId = (url.searchParams.get("batchId") ?? "").trim();
 
@@ -314,7 +306,7 @@ export async function GET(req: Request) {
     const { data: flightsRaw, error: flightsErr } = await sb
       .from("batch_flights")
       .select(
-        "schedule_key, airline, flight_number, origin, destination, scheduled_depart_iso, scheduled_arrive_iso, fa_flight_id",
+        "schedule_key, airline, flight_number, origin, destination, scheduled_depart_iso, scheduled_arrive_iso, fa_flight_id, actual_depart_iso, expected_arrive_iso, actual_arrive_iso, status, departure_delay_min, arrival_delay_min",
       )
       .eq("batch_id", batchId)
       .order("scheduled_depart_iso", { ascending: true });
@@ -334,219 +326,23 @@ export async function GET(req: Request) {
       destination: f.destination,
       scheduled_depart_iso: f.scheduled_depart_iso,
       scheduled_arrive_iso: f.scheduled_arrive_iso,
+
       fa_flight_id: f.fa_flight_id ?? null,
+
+      actual_depart_iso: f.actual_depart_iso ?? null,
+      expected_arrive_iso: f.expected_arrive_iso ?? null,
+      actual_arrive_iso: f.actual_arrive_iso ?? null,
+
+      status: f.status ?? null,
+      departure_delay_min:
+        typeof f.departure_delay_min === "number"
+          ? f.departure_delay_min
+          : null,
+      arrival_delay_min:
+        typeof f.arrival_delay_min === "number" ? f.arrival_delay_min : null,
     }));
 
-    const scheduleKeySet = new Set(
-      dbFlights.map((f) => (f.schedule_key ?? "").trim()).filter(Boolean),
-    );
-
-    const searchPayload = (batch as any).search_payload ?? null;
-    const origin = normalizeUpperSafe(searchPayload?.origin) || undefined;
-    const destination =
-      normalizeUpperSafe(searchPayload?.destination) || undefined;
-
-    const dateStart = toYyyyMmDdOrNull(searchPayload?.dateStart);
-    const dateEnd = toYyyyMmDdOrNull(searchPayload?.dateEnd);
-
-    const airlinesRaw = Array.isArray(searchPayload?.airlines)
-      ? (searchPayload.airlines as unknown[])
-      : null;
-
-    const airlines = airlinesRaw
-      ? airlinesRaw.map((x) => normalizeUpperSafe(x)).filter(Boolean)
-      : [];
-
-    const limit =
-      typeof searchPayload?.limit === "number" &&
-      Number.isFinite(searchPayload.limit)
-        ? Math.max(1, Math.min(200, Math.floor(searchPayload.limit)))
-        : 200;
-
-    if (!dateStart || !dateEnd) {
-      return NextResponse.json(
-        { ok: false, error: "Batch missing search payload dateStart/dateEnd" },
-        { status: 500 },
-      );
-    }
-
-    const aeroStart = `${dateStart}T00:00:00Z`;
-    const aeroEnd = `${dateEnd}T00:00:00Z`;
-
-    const maxPagesCapPerQuery = 5;
-
-    const byScheduleKey = new Map<string, BatchFlightRow>();
-    for (const f of dbFlights) {
-      const k = (f.schedule_key ?? "").trim();
-      if (!k) continue;
-      byScheduleKey.set(k, f);
-    }
-
-    async function ingestScheduleItem(
-      s: NonNullable<AeroApiSchedulesResponse["scheduled"]>[number],
-    ) {
-      const bestIdent =
-        s.actual_ident_iata ??
-        s.actual_ident_icao ??
-        s.actual_ident ??
-        s.ident_iata ??
-        s.ident_icao ??
-        s.ident ??
-        "";
-
-      const { airline, flightNumber } = splitIdent(bestIdent);
-
-      const originOut = (
-        s.origin_iata ??
-        s.origin_icao ??
-        s.origin ??
-        origin ??
-        ""
-      ).trim();
-      const destOut = (
-        s.destination_iata ??
-        s.destination_icao ??
-        s.destination ??
-        destination ??
-        ""
-      ).trim();
-
-      const scheduledDepartISO = s.scheduled_out ?? null;
-      const scheduledArriveISO = s.scheduled_in ?? null;
-
-      const scheduleKey = buildScheduleKey({
-        airline: airline ?? null,
-        flightNumber: flightNumber ?? null,
-        origin: originOut ?? null,
-        destination: destOut ?? null,
-        scheduledDepartISO,
-      });
-
-      if (!scheduleKey) return;
-      if (!scheduleKeySet.has(scheduleKey)) return;
-
-      const row = byScheduleKey.get(scheduleKey);
-      if (!row) return;
-
-      const fa = (s.fa_flight_id ?? "").trim() || null;
-      if (fa) {
-        row.fa_flight_id = fa;
-        try {
-          await sb
-            .from("batch_flights")
-            .update({ fa_flight_id: fa })
-            .eq("batch_id", batchId)
-            .eq("schedule_key", scheduleKey);
-        } catch {}
-      }
-
-      row.scheduled_depart_iso = scheduledDepartISO;
-      row.scheduled_arrive_iso = scheduledArriveISO;
-    }
-
-    async function runQueryForAirline(airline?: string) {
-      let cursor: string | undefined = undefined;
-      let pagesFetched = 0;
-
-      while (pagesFetched < maxPagesCapPerQuery) {
-        const { r, url: reqUrl } = await fetchSchedulesPage({
-          apiKey,
-          startISO: aeroStart,
-          endISO: aeroEnd,
-          origin,
-          destination,
-          airline,
-          cursor,
-        });
-
-        if (!r.ok) {
-          const text = await r.text().catch(() => "");
-          return NextResponse.json(
-            {
-              ok: false,
-              error: `FlightAware request failed (${r.status})`,
-              details: { url: reqUrl, body: text },
-            },
-            { status: 502 },
-          );
-        }
-
-        const json = (await r.json()) as AeroApiSchedulesResponse;
-        const scheduled = Array.isArray(json.scheduled) ? json.scheduled : [];
-
-        for (const s of scheduled) {
-          await ingestScheduleItem(s);
-        }
-
-        pagesFetched += 1;
-
-        const next = json.links?.next;
-        if (next) {
-          try {
-            const nextUrl = new URL(next, "https://aeroapi.flightaware.com");
-            cursor = nextUrl.searchParams.get("cursor") ?? undefined;
-          } catch {
-            cursor = undefined;
-          }
-        } else {
-          cursor = undefined;
-        }
-
-        if (!cursor) break;
-      }
-
-      return null;
-    }
-
-    if (airlines.length === 0) {
-      const errRes = await runQueryForAirline(undefined);
-      if (errRes) return errRes;
-    } else {
-      for (const a of airlines) {
-        const errRes = await runQueryForAirline(a);
-        if (errRes) return errRes;
-      }
-    }
-
     const flights: BatchFlightRow[] = dbFlights;
-
-    const maxEnrich = Math.min(flights.length, limit);
-    const concurrency = 6;
-    let i = 0;
-
-    async function enrichWorker() {
-      while (i < maxEnrich) {
-        const idx2 = i;
-        i += 1;
-
-        const row = flights[idx2];
-        const fa = (row.fa_flight_id ?? "").trim();
-        if (!fa) continue;
-
-        const { r } = await fetchFlightById({ apiKey, faFlightId: fa });
-        if (!r.ok) continue;
-
-        const fj = (await r.json()) as AeroApiFlightResponse;
-        const f0 = Array.isArray(fj.flights) ? fj.flights[0] : undefined;
-        if (!f0) continue;
-
-        row.scheduled_depart_iso = f0.scheduled_out ?? row.scheduled_depart_iso;
-        row.actual_depart_iso = f0.actual_out ?? null;
-
-        row.scheduled_arrive_iso = f0.scheduled_in ?? row.scheduled_arrive_iso;
-        row.expected_arrive_iso = f0.estimated_in ?? null;
-        row.actual_arrive_iso = f0.actual_in ?? null;
-
-        row.departure_delay_min = secToMin(f0.departure_delay);
-        row.arrival_delay_min = secToMin(f0.arrival_delay);
-
-        row.status = f0.status ?? null;
-      }
-    }
-
-    await Promise.all(
-      Array.from({ length: concurrency }, () => enrichWorker()),
-    );
 
     return NextResponse.json(
       {
