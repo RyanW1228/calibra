@@ -1,17 +1,13 @@
-// calibra/src/app/api/batches/create/route.ts
 import { NextResponse } from "next/server";
 import { supabaseServer } from "@/lib/supabaseServer";
 
 type CreateBatchRequest = {
   displayTimeZone: string;
 
-  // NEW: store the exact search used to generate the flight list
   search: Record<string, unknown>;
 
-  // NEW: only these schedule_keys are considered included in the batch
   includedScheduleKeys: string[];
 
-  // keep existing: we still store the selected flights themselves
   flights: Array<{
     scheduleKey: string;
     airline: string;
@@ -74,7 +70,6 @@ export async function POST(req: Request) {
     );
   }
 
-  // Ensure flights align with included keys
   const includedSet = new Set(included);
   const filteredFlights = flights.filter((f) => includedSet.has(f.scheduleKey));
 
@@ -87,9 +82,6 @@ export async function POST(req: Request) {
 
   const sb = supabaseServer();
 
-  //
-  // 1) Create batch (now includes search + included keys)
-  //
   const { data: batchRow, error: batchErr } = await sb
     .from("batches")
     .insert({
@@ -111,9 +103,6 @@ export async function POST(req: Request) {
 
   const batchId = batchRow.id as string;
 
-  //
-  // 2) Insert flights (only included ones)
-  //
   const inserts = filteredFlights.map((f) => ({
     batch_id: batchId,
     schedule_key: f.scheduleKey,
@@ -123,6 +112,7 @@ export async function POST(req: Request) {
     destination: f.destination,
     scheduled_depart_iso: f.scheduledDepartISO ?? null,
     scheduled_arrive_iso: f.scheduledArriveISO ?? null,
+    fa_flight_id: null,
   }));
 
   const { error: flightsErr } = await sb.from("batch_flights").insert(inserts);

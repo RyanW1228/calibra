@@ -34,7 +34,7 @@ export async function GET(req: Request) {
     const { data: flights, error: flightsErr } = await sb
       .from("batch_flights")
       .select(
-        "schedule_key, airline, flight_number, origin, destination, scheduled_depart_iso, scheduled_arrive_iso",
+        "schedule_key, airline, flight_number, origin, destination, scheduled_depart_iso, scheduled_arrive_iso, fa_flight_id",
       )
       .eq("batch_id", batchId)
       .order("scheduled_depart_iso", { ascending: true });
