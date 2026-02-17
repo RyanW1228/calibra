@@ -41,11 +41,7 @@ type AeroApiSchedulesResponse = {
 };
 
 type FlightResult = {
-  // NEW: primary identity
   scheduleKey?: string;
-
-  // Back-compat: keep returning this for now (we will stop using it next)
-  id?: string; // fa_flight_id
 
   airline?: string;
   flightNumber?: string;
@@ -53,13 +49,7 @@ type FlightResult = {
   destination?: string;
 
   scheduledDepartISO?: string;
-  actualDepartISO?: string;
   scheduledArriveISO?: string;
-  expectedArriveISO?: string;
-  actualArriveISO?: string;
-
-  departureDelayMin?: number;
-  arrivalDelayMin?: number;
 
   status?: string;
 
@@ -163,9 +153,6 @@ function uniqKeyForFlight(r: FlightResult) {
   // NEW: prefer scheduleKey always
   if (r.scheduleKey) return `sk:${r.scheduleKey}`;
 
-  // Back-compat fallback:
-  if (r.id) return `id:${r.id}`;
-
   return [
     r.origin ?? "",
     r.destination ?? "",
@@ -209,41 +196,6 @@ async function fetchSchedulesPage(opts: {
   });
 
   return { r, url };
-}
-
-type AeroApiFlightResponse = {
-  flights?: Array<{
-    fa_flight_id?: string | null;
-    scheduled_out?: string | null;
-    actual_out?: string | null;
-    scheduled_in?: string | null;
-    estimated_in?: string | null;
-    actual_in?: string | null;
-    departure_delay?: number | null; // seconds
-    arrival_delay?: number | null; // seconds
-    status?: string | null;
-  }> | null;
-};
-
-async function fetchFlightById(opts: { apiKey: string; faFlightId: string }) {
-  const url = buildAeroApiUrl(
-    `/flights/${encodeURIComponent(opts.faFlightId)}`,
-    {},
-  );
-  const r = await fetch(url, {
-    method: "GET",
-    headers: {
-      "x-apikey": opts.apiKey,
-      accept: "application/json",
-    },
-    cache: "no-store",
-  });
-  return { r, url };
-}
-
-function secToMin(sec: number | null | undefined) {
-  if (typeof sec !== "number" || Number.isNaN(sec)) return undefined;
-  return Math.round(sec / 60);
 }
 
 export async function POST(req: Request) {
@@ -367,9 +319,6 @@ export async function POST(req: Request) {
         // NEW: compute scheduleKey now
         scheduleKey: undefined,
 
-        // Back-compat: keep returning FlightAware ID if present (we'll stop using it next)
-        id: s.fa_flight_id ?? undefined,
-
         airline,
         flightNumber,
         origin: originOut,
@@ -377,7 +326,6 @@ export async function POST(req: Request) {
 
         scheduledDepartISO,
         scheduledArriveISO: s.scheduled_in ?? undefined,
-        expectedArriveISO: undefined,
 
         departLocalISO: scheduledDepartISO,
         arriveLocalISO: s.scheduled_in ?? undefined,
@@ -460,47 +408,9 @@ export async function POST(req: Request) {
       }
     }
 
-    // NOTE: enrichment still keys off row.id for now.
-    // Next step after frontend migration: either remove enrichment, or switch to scheduleKey->resolve->enrich.
-    const maxEnrich = Math.min(out.length, limit);
-    const concurrency = 6;
-
-    let i = 0;
-    async function worker() {
-      while (i < maxEnrich) {
-        const idx = i;
-        i += 1;
-
-        const row = out[idx];
-        if (!row?.id) continue;
-
-        const { r } = await fetchFlightById({ apiKey, faFlightId: row.id });
-        if (!r.ok) continue;
-
-        const fj = (await r.json()) as AeroApiFlightResponse;
-        const f0 = Array.isArray(fj.flights) ? fj.flights[0] : undefined;
-        if (!f0) continue;
-
-        row.scheduledDepartISO = f0.scheduled_out ?? row.scheduledDepartISO;
-        row.actualDepartISO = f0.actual_out ?? undefined;
-        row.scheduledArriveISO = f0.scheduled_in ?? row.scheduledArriveISO;
-        row.expectedArriveISO = f0.estimated_in ?? undefined;
-        row.actualArriveISO = f0.actual_in ?? undefined;
-
-        row.departureDelayMin = secToMin(f0.departure_delay);
-        row.arrivalDelayMin = secToMin(f0.arrival_delay);
-
-        row.status = f0.status ?? row.status;
-
-        row.departLocalISO = row.scheduledDepartISO;
-        row.arriveLocalISO = row.scheduledArriveISO;
-
-        // Keep scheduleKey consistent even if scheduledDepartISO got normalized/updated.
-        row.scheduleKey = buildScheduleKey(row) ?? row.scheduleKey;
-      }
+    for (const row of out) {
+      row.status = row.status ?? "Scheduled";
     }
-
-    await Promise.all(Array.from({ length: concurrency }, () => worker()));
 
     return NextResponse.json({ ok: true, flights: out }, { status: 200 });
   } catch (e: any) {

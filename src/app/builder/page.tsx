@@ -13,7 +13,6 @@ import FlightFilters, {
 
 type FlightResult = {
   scheduleKey?: string;
-  id?: string; // fa_flight_id
   airline?: string;
   flightNumber?: string;
   origin?: string;
@@ -220,17 +219,10 @@ export default function Home() {
             destination: d,
 
             scheduledDepartISO,
-            actualDepartISO: f.actualDepartISO,
             scheduledArriveISO,
-            actualArriveISO: f.actualArriveISO,
-            departureDelayMin: f.departureDelayMin,
-            arrivalDelayMin: f.arrivalDelayMin,
 
             status,
             included: true,
-
-            // optional debug / future enrichment, not used for identity
-            faFlightId: f.id,
           };
 
           return row;

@@ -112,7 +112,6 @@ export async function POST(req: Request) {
     destination: f.destination,
     scheduled_depart_iso: f.scheduledDepartISO ?? null,
     scheduled_arrive_iso: f.scheduledArriveISO ?? null,
-    fa_flight_id: null,
   }));
 
   const { error: flightsErr } = await sb.from("batch_flights").insert(inserts);

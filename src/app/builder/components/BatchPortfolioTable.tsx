@@ -4,31 +4,17 @@
 import React, { useMemo } from "react";
 
 export type BatchRow = {
-  scheduleKey: string; // NEW: primary identity (required)
+  scheduleKey: string;
   airline: string;
   flightNumber: string;
   origin: string;
   destination: string;
 
   scheduledDepartISO?: string;
-  actualDepartISO?: string;
   scheduledArriveISO?: string;
-
-  // NEW: expected arrival (ETA). For flights not yet arrived, this is what you show.
-  expectedArriveISO?: string;
-
-  actualArriveISO?: string;
-
-  departureDelayMin?: number;
-
-  // Optional: if you already compute arrival delay elsewhere, keep this.
-  arrivalDelayMin?: number;
 
   status: string;
   included: boolean;
-
-  // OPTIONAL: keep around for debugging / enrichment, but do not key off it.
-  faFlightId?: string;
 };
 
 function formatTime(iso: string | undefined, timeZone: string) {
@@ -47,27 +33,6 @@ function formatTime(iso: string | undefined, timeZone: string) {
   } catch {
     return d.toISOString();
   }
-}
-
-function diffMinutes(aISO?: string, bISO?: string) {
-  if (!aISO || !bISO) return undefined;
-  const a = new Date(aISO).getTime();
-  const b = new Date(bISO).getTime();
-  if (Number.isNaN(a) || Number.isNaN(b)) return undefined;
-  return Math.round((a - b) / 60000);
-}
-
-function addMinutesISO(iso?: string, minutes?: number) {
-  if (!iso || minutes === undefined) return undefined;
-  const ms = new Date(iso).getTime();
-  if (Number.isNaN(ms)) return undefined;
-  return new Date(ms + minutes * 60000).toISOString();
-}
-
-function fmtMin(n?: number) {
-  if (n === undefined) return "—";
-  const sign = n > 0 ? "+" : "";
-  return `${sign}${n}m`;
 }
 
 function rowKey(x: BatchRow) {
@@ -173,24 +138,10 @@ export default function BatchPortfolioTable({
               <th className="px-3 py-2 font-medium whitespace-nowrap">
                 Sched Dep
               </th>
-              <th className="px-3 py-2 font-medium whitespace-nowrap">
-                Act Dep
-              </th>
-              <th className="px-3 py-2 font-medium whitespace-nowrap">Dep Δ</th>
 
               <th className="px-3 py-2 font-medium whitespace-nowrap">
                 Sched Arr
               </th>
-
-              <th className="px-3 py-2 font-medium whitespace-nowrap">
-                Exp Arr
-              </th>
-              <th className="px-3 py-2 font-medium whitespace-nowrap">Exp Δ</th>
-
-              <th className="px-3 py-2 font-medium whitespace-nowrap">
-                Act Arr
-              </th>
-              <th className="px-3 py-2 font-medium whitespace-nowrap">Act Δ</th>
 
               <th className="px-3 py-2 font-medium whitespace-nowrap">
                 Status
@@ -202,7 +153,7 @@ export default function BatchPortfolioTable({
             {isLoading ? (
               <tr>
                 <td
-                  colSpan={13}
+                  colSpan={7}
                   className="px-3 py-6 text-zinc-500 dark:text-zinc-400"
                 >
                   Loading…
@@ -211,7 +162,7 @@ export default function BatchPortfolioTable({
             ) : rows.length === 0 ? (
               <tr>
                 <td
-                  colSpan={13}
+                  colSpan={7}
                   className="px-3 py-6 text-zinc-500 dark:text-zinc-400"
                 >
                   No batch yet. Run a search.
@@ -220,33 +171,6 @@ export default function BatchPortfolioTable({
             ) : (
               rows.map((r) => {
                 const k = rowKey(r);
-
-                const depDeltaMin =
-                  r.actualDepartISO && r.scheduledDepartISO
-                    ? diffMinutes(r.actualDepartISO, r.scheduledDepartISO)
-                    : undefined;
-
-                const hasArrived = Boolean(r.actualArriveISO);
-                const hasEta = Boolean(r.expectedArriveISO);
-
-                const actArrDeltaMin = hasArrived
-                  ? (r.arrivalDelayMin ??
-                    (r.actualArriveISO && r.scheduledArriveISO
-                      ? diffMinutes(r.actualArriveISO, r.scheduledArriveISO)
-                      : undefined))
-                  : undefined;
-
-                const expArrDeltaMin = hasArrived
-                  ? actArrDeltaMin
-                  : (r.arrivalDelayMin ??
-                    (hasEta && r.expectedArriveISO && r.scheduledArriveISO
-                      ? diffMinutes(r.expectedArriveISO, r.scheduledArriveISO)
-                      : undefined));
-
-                const expArrISO = hasArrived
-                  ? r.actualArriveISO
-                  : (addMinutesISO(r.scheduledArriveISO, expArrDeltaMin) ??
-                    r.scheduledArriveISO);
 
                 return (
                   <tr
@@ -274,29 +198,9 @@ export default function BatchPortfolioTable({
                     <td className="px-3 py-2">
                       {formatTime(r.scheduledDepartISO, displayTimeZone)}
                     </td>
-                    <td className="px-3 py-2">
-                      {formatTime(r.actualDepartISO, displayTimeZone)}
-                    </td>
-                    <td className="px-3 py-2 font-mono text-xs">
-                      {fmtMin(depDeltaMin)}
-                    </td>
 
                     <td className="px-3 py-2">
                       {formatTime(r.scheduledArriveISO, displayTimeZone)}
-                    </td>
-
-                    <td className="px-3 py-2">
-                      {formatTime(expArrISO, displayTimeZone)}
-                    </td>
-                    <td className="px-3 py-2 font-mono text-xs">
-                      {fmtMin(expArrDeltaMin)}
-                    </td>
-
-                    <td className="px-3 py-2">
-                      {formatTime(r.actualArriveISO, displayTimeZone)}
-                    </td>
-                    <td className="px-3 py-2 font-mono text-xs">
-                      {fmtMin(actArrDeltaMin)}
                     </td>
 
                     <td className="px-3 py-2">{r.status}</td>
