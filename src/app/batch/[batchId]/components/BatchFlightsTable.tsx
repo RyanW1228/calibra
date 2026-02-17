@@ -27,6 +27,8 @@ export type BatchPredictionRow = {
   outcome?: string | null;
   confidence?: number | null;
   created_at?: string | null;
+
+  probabilities?: Record<string, number> | null;
 };
 
 type Props = {
@@ -35,6 +37,8 @@ type Props = {
   isLoading: boolean;
   displayTimeZone: string;
   fallbackStatus?: string | null;
+
+  predictionColumns?: string[];
 };
 
 function formatTime(iso: string | null | undefined, timeZone: string) {
@@ -82,12 +86,19 @@ function pickLatestPrediction(
   return bMs >= aMs ? b : a;
 }
 
+function pctOrDash(v: unknown) {
+  if (typeof v !== "number" || !Number.isFinite(v)) return "—";
+  const p = Math.max(0, Math.min(1, v)) * 100;
+  return `${p.toFixed(1)}%`;
+}
+
 export default function BatchFlightsTable({
   flights,
   predictions,
   isLoading,
   displayTimeZone,
   fallbackStatus,
+  predictionColumns,
 }: Props) {
   const predictionByScheduleKey = useMemo(() => {
     const m = new Map<string, BatchPredictionRow>();
@@ -99,9 +110,23 @@ export default function BatchFlightsTable({
     return m;
   }, [predictions]);
 
+  const normalizedPredictionColumns = useMemo(() => {
+    const cols = Array.isArray(predictionColumns) ? predictionColumns : [];
+    return cols
+      .map((c) => (typeof c === "string" ? c.trim() : ""))
+      .filter((c) => c.length > 0);
+  }, [predictionColumns]);
+
   return (
     <div className="mt-6 overflow-auto rounded-xl border border-zinc-200 dark:border-zinc-800">
-      <table className="min-w-[1900px] text-left text-sm">
+      <table
+        className={[
+          "text-left text-sm",
+          normalizedPredictionColumns.length > 0
+            ? "min-w-[2200px]"
+            : "min-w-[1900px]",
+        ].join(" ")}
+      >
         <thead className="sticky top-0 z-10 bg-zinc-50 text-xs text-zinc-600 dark:bg-black dark:text-zinc-400">
           <tr>
             <th className="px-3 py-2 font-medium whitespace-nowrap">Airline</th>
@@ -125,9 +150,21 @@ export default function BatchFlightsTable({
 
             <th className="px-3 py-2 font-medium whitespace-nowrap">Status</th>
 
-            <th className="px-3 py-2 font-medium whitespace-nowrap">
-              Prediction
-            </th>
+            {normalizedPredictionColumns.length > 0 ? (
+              normalizedPredictionColumns.map((c) => (
+                <th
+                  key={c}
+                  className="px-3 py-2 font-medium whitespace-nowrap text-right"
+                  title={c}
+                >
+                  {c}
+                </th>
+              ))
+            ) : (
+              <th className="px-3 py-2 font-medium whitespace-nowrap">
+                Prediction
+              </th>
+            )}
           </tr>
         </thead>
 
@@ -135,7 +172,11 @@ export default function BatchFlightsTable({
           {isLoading ? (
             <tr>
               <td
-                colSpan={13}
+                colSpan={
+                  normalizedPredictionColumns.length > 0
+                    ? 12 + normalizedPredictionColumns.length
+                    : 13
+                }
                 className="px-3 py-6 text-zinc-500 dark:text-zinc-400"
               >
                 Loading…
@@ -144,7 +185,11 @@ export default function BatchFlightsTable({
           ) : flights.length === 0 ? (
             <tr>
               <td
-                colSpan={13}
+                colSpan={
+                  normalizedPredictionColumns.length > 0
+                    ? 12 + normalizedPredictionColumns.length
+                    : 13
+                }
                 className="px-3 py-6 text-zinc-500 dark:text-zinc-400"
               >
                 No flights found.
@@ -227,7 +272,21 @@ export default function BatchFlightsTable({
 
                   <td className="px-3 py-2">{statusText}</td>
 
-                  <td className="px-3 py-2">{predictionText}</td>
+                  {normalizedPredictionColumns.length > 0 ? (
+                    normalizedPredictionColumns.map((c) => {
+                      const v = p?.probabilities?.[c] ?? null;
+                      return (
+                        <td
+                          key={c}
+                          className="px-3 py-2 text-right font-mono text-xs"
+                        >
+                          {pctOrDash(v)}
+                        </td>
+                      );
+                    })
+                  ) : (
+                    <td className="px-3 py-2">{predictionText}</td>
+                  )}
                 </tr>
               );
             })

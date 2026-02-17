@@ -17,6 +17,8 @@ type BatchGetResponse =
         flight_count: number;
         status: string;
         created_at: string;
+        prediction_window_start_at?: string | null;
+        prediction_window_end_at?: string | null;
       };
       flights: BatchFlightRow[];
     }
@@ -31,6 +33,8 @@ type PredictionRow = {
   outcome: string | null;
   confidence: number | null;
   created_at: string | null;
+
+  probabilities?: Record<string, number> | null;
 };
 
 type PredictionsResponse =
@@ -43,6 +47,39 @@ function fmtIsoLocal(s: string | null) {
   const ms = d.getTime();
   if (!Number.isFinite(ms)) return "—";
   return d.toLocaleString();
+}
+
+function fmtIsoInTimeZone(iso: string | null | undefined, timeZone: string) {
+  if (!iso) return "—";
+  const d = new Date(iso);
+  const ms = d.getTime();
+  if (!Number.isFinite(ms)) return "—";
+  try {
+    return new Intl.DateTimeFormat(undefined, {
+      timeZone,
+      year: "numeric",
+      month: "2-digit",
+      day: "2-digit",
+      hour: "2-digit",
+      minute: "2-digit",
+      second: "2-digit",
+    }).format(d);
+  } catch {
+    return d.toLocaleString();
+  }
+}
+
+function clampNonNeg(ms: number) {
+  return ms < 0 ? 0 : ms;
+}
+
+function fmtCountdown(ms: number) {
+  const t = Math.floor(clampNonNeg(ms) / 1000);
+  const hh = Math.floor(t / 3600);
+  const mm = Math.floor((t % 3600) / 60);
+  const ss = t % 60;
+  const pad = (x: number) => String(x).padStart(2, "0");
+  return `${pad(hh)}:${pad(mm)}:${pad(ss)}`;
 }
 
 export default function BatchPage() {
@@ -64,6 +101,12 @@ export default function BatchPage() {
     const v = (batch?.display_time_zone ?? "UTC").toString();
     return v || "UTC";
   }, [batch]);
+
+  const [nowMs, setNowMs] = useState(() => Date.now());
+  useEffect(() => {
+    const id = window.setInterval(() => setNowMs(Date.now()), 250);
+    return () => window.clearInterval(id);
+  }, []);
 
   useEffect(() => {
     let alive = true;
@@ -160,8 +203,71 @@ export default function BatchPage() {
       outcome: p.outcome,
       confidence: p.confidence,
       created_at: p.created_at,
+      probabilities: p.probabilities ?? null,
     })) satisfies BatchPredictionRow[];
   }, [predictions]);
+
+  const predictionColumns = useMemo(() => {
+    const s = new Set<string>();
+    for (const p of predictions) {
+      const probs = p.probabilities;
+      if (!probs || typeof probs !== "object") continue;
+      for (const k of Object.keys(probs)) {
+        const key = k.trim();
+        if (key) s.add(key);
+      }
+    }
+    return Array.from(s);
+  }, [predictions]);
+
+  const windowStartIso = batch?.prediction_window_start_at ?? null;
+  const windowEndIso = batch?.prediction_window_end_at ?? null;
+
+  const windowState = useMemo(() => {
+    const startMs = windowStartIso ? new Date(windowStartIso).getTime() : NaN;
+    const endMs = windowEndIso ? new Date(windowEndIso).getTime() : NaN;
+
+    const startOk = Number.isFinite(startMs);
+    const endOk = Number.isFinite(endMs);
+
+    if (!startOk || !endOk) {
+      return {
+        label: "Not Available",
+        badgeClass:
+          "border-zinc-200 bg-white text-zinc-700 dark:border-zinc-800 dark:bg-zinc-950 dark:text-zinc-200",
+        countdownLabel: null as string | null,
+        countdownValue: null as string | null,
+      };
+    }
+
+    if (nowMs < startMs) {
+      return {
+        label: "Not Started",
+        badgeClass:
+          "border-zinc-200 bg-white text-zinc-700 dark:border-zinc-800 dark:bg-zinc-950 dark:text-zinc-200",
+        countdownLabel: "Starts In",
+        countdownValue: fmtCountdown(startMs - nowMs),
+      };
+    }
+
+    if (nowMs >= startMs && nowMs < endMs) {
+      return {
+        label: "Open",
+        badgeClass:
+          "border-emerald-200 bg-emerald-50 text-emerald-800 dark:border-emerald-900/50 dark:bg-emerald-950/30 dark:text-emerald-200",
+        countdownLabel: "Closes In",
+        countdownValue: fmtCountdown(endMs - nowMs),
+      };
+    }
+
+    return {
+      label: "Closed",
+      badgeClass:
+        "border-red-200 bg-red-50 text-red-800 dark:border-red-900/50 dark:bg-red-950/30 dark:text-red-emerald-200",
+      countdownLabel: "Closed",
+      countdownValue: "00:00:00",
+    };
+  }, [nowMs, windowStartIso, windowEndIso]);
 
   return (
     <div className="flex min-h-screen items-center justify-center bg-zinc-50 font-sans dark:bg-black">
@@ -208,7 +314,7 @@ export default function BatchPage() {
             </div>
           ) : null}
 
-          <div className="mt-6 grid gap-4 sm:grid-cols-3">
+          <div className="mt-6 grid gap-4 sm:grid-cols-4">
             <div className="rounded-xl border border-zinc-200 p-4 dark:border-zinc-800">
               <div className="text-xs text-zinc-500 dark:text-zinc-400">
                 Status
@@ -239,6 +345,45 @@ export default function BatchPage() {
                 {tz}
               </div>
             </div>
+
+            <div className="rounded-xl border border-zinc-200 p-4 dark:border-zinc-800">
+              <div className="flex items-center justify-between gap-3">
+                <div className="text-xs text-zinc-500 dark:text-zinc-400">
+                  Prediction Window
+                </div>
+                <div
+                  className={`inline-flex items-center rounded-full border px-2 py-0.5 text-[11px] font-medium ${windowState.badgeClass}`}
+                >
+                  {windowState.label}
+                </div>
+              </div>
+
+              <div className="mt-2 flex flex-col gap-1">
+                <div className="text-[11px] text-zinc-500 dark:text-zinc-400">
+                  Start:{" "}
+                  <span className="font-mono text-zinc-700 dark:text-zinc-200">
+                    {fmtIsoInTimeZone(windowStartIso, tz)}
+                  </span>
+                </div>
+                <div className="text-[11px] text-zinc-500 dark:text-zinc-400">
+                  End:{" "}
+                  <span className="font-mono text-zinc-700 dark:text-zinc-200">
+                    {fmtIsoInTimeZone(windowEndIso, tz)}
+                  </span>
+                </div>
+
+                {windowState.countdownLabel && windowState.countdownValue ? (
+                  <div className="mt-2 flex items-center justify-between">
+                    <div className="text-xs text-zinc-600 dark:text-zinc-300">
+                      {windowState.countdownLabel}
+                    </div>
+                    <div className="font-mono text-sm font-semibold text-zinc-900 dark:text-zinc-50">
+                      {windowState.countdownValue}
+                    </div>
+                  </div>
+                ) : null}
+              </div>
+            </div>
           </div>
 
           <div className="mt-8 rounded-2xl border border-zinc-200 p-5 dark:border-zinc-800">
@@ -260,6 +405,7 @@ export default function BatchPage() {
               predictions={predictionRows}
               isLoading={isLoading}
               displayTimeZone={tz}
+              predictionColumns={predictionColumns}
             />
           </div>
         </div>

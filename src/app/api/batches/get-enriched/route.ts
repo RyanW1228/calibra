@@ -10,6 +10,15 @@ type BatchRow = {
   created_at: string;
   search_payload: any | null;
   included_schedule_keys: string[] | null;
+
+  prediction_window_start_unix?: number | null;
+  prediction_window_end_unix?: number | null;
+  end_when_all_landed?: boolean | null;
+  thresholds_minutes?: number[] | null;
+
+  spec_hash?: string | null;
+  seed_hash?: string | null;
+  fund_tx_hash?: string | null;
 };
 
 type BatchFlightRow = {
@@ -210,6 +219,14 @@ function findBestFaFlightId(args: {
   return best?.fa ?? null;
 }
 
+function isoFromUnixSeconds(u: unknown): string | null {
+  const n = typeof u === "string" ? Number(u) : u;
+  if (typeof n !== "number" || !Number.isFinite(n)) return null;
+  const s = Math.floor(n);
+  if (s <= 0) return null;
+  return new Date(s * 1000).toISOString();
+}
+
 export async function GET(req: Request) {
   try {
     const apiKey = process.env.FLIGHTAWARE_API_KEY ?? "";
@@ -232,10 +249,11 @@ export async function GET(req: Request) {
 
     const sb = supabaseServer();
 
+    // ANCHOR: expand select to include Option A columns
     const { data: batch, error: batchErr } = await sb
       .from("batches")
       .select(
-        "id, display_time_zone, flight_count, status, created_at, search_payload, included_schedule_keys",
+        "id, display_time_zone, flight_count, status, created_at, search_payload, included_schedule_keys, prediction_window_start_unix, prediction_window_end_unix, end_when_all_landed, thresholds_minutes, spec_hash, seed_hash, fund_tx_hash",
       )
       .eq("id", batchId)
       .single();
@@ -246,6 +264,13 @@ export async function GET(req: Request) {
         { status: 404 },
       );
     }
+
+    const prediction_window_start_at = isoFromUnixSeconds(
+      (batch as any).prediction_window_start_unix ?? null,
+    );
+    const prediction_window_end_at = isoFromUnixSeconds(
+      (batch as any).prediction_window_end_unix ?? null,
+    );
 
     const { data: flightsRaw, error: flightsErr } = await sb
       .from("batch_flights")
@@ -272,8 +297,6 @@ export async function GET(req: Request) {
       scheduled_arrive_iso: f.scheduled_arrive_iso,
     }));
 
-    // Enrich each flight using schedules -> fa_flight_id -> flights/{fa_flight_id}
-    // (bounded concurrency)
     const concurrency = 6;
     let idx = 0;
 
@@ -283,7 +306,6 @@ export async function GET(req: Request) {
         : null;
       if (!dep || Number.isNaN(dep.getTime())) return;
 
-      // window around scheduled depart (UTC)
       const startISO = new Date(
         dep.getTime() - 6 * 60 * 60 * 1000,
       ).toISOString();
@@ -352,8 +374,26 @@ export async function GET(req: Request) {
 
     await Promise.all(Array.from({ length: concurrency }, () => worker()));
 
+    // ANCHOR: return the new fields so batch/[batchId] can display timer
     return NextResponse.json(
-      { ok: true, batch: batch as BatchRow, flights },
+      {
+        ok: true,
+        batch: {
+          ...(batch as BatchRow),
+          prediction_window_start_unix:
+            (batch as any).prediction_window_start_unix ?? null,
+          prediction_window_end_unix:
+            (batch as any).prediction_window_end_unix ?? null,
+          prediction_window_start_at,
+          prediction_window_end_at,
+          end_when_all_landed: (batch as any).end_when_all_landed ?? null,
+          thresholds_minutes: (batch as any).thresholds_minutes ?? null,
+          spec_hash: (batch as any).spec_hash ?? null,
+          seed_hash: (batch as any).seed_hash ?? null,
+          fund_tx_hash: (batch as any).fund_tx_hash ?? null,
+        },
+        flights,
+      },
       { status: 200 },
     );
   } catch (e: any) {

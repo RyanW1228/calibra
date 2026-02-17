@@ -350,7 +350,19 @@ export default function FundBatchPage() {
         await fetch("/api/batches/mark-funded", {
           method: "POST",
           headers: { "content-type": "application/json" },
-          body: JSON.stringify({ batchId }),
+          body: JSON.stringify({
+            batchId,
+            predictionWindowStartUnix: wsU,
+            predictionWindowEndUnix: weU,
+            windowStartLocal: windowStartLocal.trim(),
+            windowEndLocal: windowEndLocal.trim(),
+            endWhenAllLanded,
+            thresholdsMinutes: uniqThresholdMinutes,
+            spec,
+            specHash,
+            seedHash,
+            fundTxHash: fundHash,
+          }),
         });
       } catch {}
 
