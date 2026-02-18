@@ -129,6 +129,13 @@ export default function HomePage() {
             </div>
 
             <div className="flex items-center gap-2">
+              <button
+                onClick={() => router.push("/submit")}
+                className="inline-flex h-9 items-center justify-center rounded-full border border-zinc-200 bg-white px-4 text-xs font-medium text-zinc-900 transition hover:bg-zinc-50 dark:border-zinc-800 dark:bg-zinc-950 dark:text-zinc-50 dark:hover:bg-black"
+              >
+                Model
+              </button>
+
               {isConnected ? (
                 <>
                   <div className="hidden flex-col items-end gap-1 sm:flex">
