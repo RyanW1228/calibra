@@ -247,7 +247,7 @@ export default function BatchFlightsTable({
                     <td className="px-3 py-2 font-mono text-xs">
                       {f.schedule_key}
                     </td>
-                    <td className="px-3 py-2 font-medium">{f.airline}</td>{" "}
+                    <td className="px-3 py-2 font-medium">{f.airline}</td>
                     <td className="px-3 py-2">{f.flight_number}</td>
                     <td className="px-3 py-2">
                       <span className="font-mono text-xs">{f.origin}</span>
