@@ -1,7 +1,6 @@
 module Calibra.Batch where
 
-import DA.Assert
-import DA.Time
+import DA.Text (Text)
 
 template Batch
   with
@@ -12,19 +11,69 @@ template Batch
   where
     signatory operator
 
+    choice Join : ContractId JoinBond
+      with
+        predictor : Party
+        bondUsd : Decimal
+        joinedAt : Time
+      controller predictor
+      do
+        create JoinBond with
+          operator
+          batchId
+          joiner = predictor
+          bondUsd
+          joinFeeUsd
+          joinedAt
+
+    choice SubmitPrediction : ContractId Prediction
+      with
+        predictor : Party
+        submittedAt : Time
+        probabilitiesJson : Text
+      controller predictor
+      do
+        mb <- lookupByKey @JoinBond (operator, batchId, predictor)
+        case mb of
+          None -> abort "Must join (post bond) before submitting predictions."
+          Some _ ->
+            create Prediction with
+              operator
+              batchId
+              submitter = predictor
+              submittedAt
+              probabilitiesJson
+
+
 template JoinBond
   with
     operator : Party
-    predictor : Party
     batchId : Text
+    joiner : Party
     bondUsd : Decimal
+    joinFeeUsd : Decimal
     joinedAt : Time
   where
-    signatory predictor
+    signatory joiner
     observer operator
 
-    choice Refund : ContractId JoinBond
+    key (operator, batchId, joiner) : (Party, Text, Party)
+    maintainer (case key of (_, _, j) -> j)
+
+    choice Refund : ()
       controller operator
       do
         archive self
-        pure self
+        pure ()
+
+
+template Prediction
+  with
+    operator : Party
+    batchId : Text
+    submitter : Party
+    submittedAt : Time
+    probabilitiesJson : Text
+  where
+    signatory submitter
+    observer operator
