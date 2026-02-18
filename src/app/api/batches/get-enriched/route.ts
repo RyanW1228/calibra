@@ -10,6 +10,9 @@ type BatchRow = {
   created_at: string;
   search_payload: any | null;
   included_schedule_keys: string[] | null;
+
+  prediction_window_start_unix: number | string | null;
+  prediction_window_end_unix: number | string | null;
 };
 
 type BatchFlightRow = {
@@ -98,100 +101,17 @@ function toIsoOrNull(s: string | null | undefined) {
   return d.toISOString();
 }
 
-function toYyyyMmDdOrNull(v: unknown): string | null {
-  if (typeof v !== "string") return null;
-  const s = v.trim();
-  if (!s) return null;
-  if (/^\d{4}-\d{2}-\d{2}$/.test(s)) return s;
-  const m = s.match(/^(\d{4}-\d{2}-\d{2})T/);
-  if (m) return m[1];
+function unixSecToIso(v: unknown): string | null {
+  if (typeof v === "string") {
+    const n = Number(v);
+    if (!Number.isFinite(n)) return null;
+    return new Date(n * 1000).toISOString();
+  }
+  if (typeof v === "number") {
+    if (!Number.isFinite(v)) return null;
+    return new Date(v * 1000).toISOString();
+  }
   return null;
-}
-
-function normalizeUpperSafe(v: unknown) {
-  if (typeof v !== "string") return "";
-  return v.trim().toUpperCase();
-}
-
-function buildScheduleKey(r: {
-  airline?: string | null;
-  flightNumber?: string | null;
-  origin?: string | null;
-  destination?: string | null;
-  scheduledDepartISO?: string | null;
-}) {
-  const a = (r.airline ?? "").trim().toUpperCase();
-  const n = (r.flightNumber ?? "").trim().toUpperCase();
-  const o = (r.origin ?? "").trim().toUpperCase();
-  const d = (r.destination ?? "").trim().toUpperCase();
-  const t = (r.scheduledDepartISO ?? "").trim();
-
-  if (!a || !n || !o || !d || !t) return null;
-
-  const dt = new Date(t);
-  if (Number.isNaN(dt.getTime())) return null;
-
-  const isoUTC = dt.toISOString();
-  return `${a}|${n}|${o}|${d}|${isoUTC}`;
-}
-
-function splitIdent(ident: string | undefined | null): {
-  airline?: string;
-  flightNumber?: string;
-} {
-  if (!ident) return {};
-  const compact = ident.trim().toUpperCase().replace(/\s+/g, "");
-  const m = compact.match(/^([A-Z]{2,3})(\d{1,5}[A-Z]?)$/);
-  if (!m) return {};
-  return { airline: m[1], flightNumber: m[2] };
-}
-
-async function fetchSchedulesPage(opts: {
-  apiKey: string;
-  startISO: string;
-  endISO: string;
-  origin?: string;
-  destination?: string;
-  airline?: string;
-  cursor?: string;
-}) {
-  const url = buildAeroApiUrl(
-    `/schedules/${encodeURIComponent(opts.startISO)}/${encodeURIComponent(
-      opts.endISO,
-    )}`,
-    {
-      origin: opts.origin,
-      destination: opts.destination,
-      airline: opts.airline,
-      include_codeshares: "false",
-      include_regional: "true",
-      max_pages: "1",
-      cursor: opts.cursor,
-    },
-  );
-
-  const r = await fetch(url, {
-    method: "GET",
-    headers: { "x-apikey": opts.apiKey, accept: "application/json" },
-    cache: "no-store",
-  });
-
-  return { r, url };
-}
-
-async function fetchFlightById(opts: { apiKey: string; faFlightId: string }) {
-  const url = buildAeroApiUrl(
-    `/flights/${encodeURIComponent(opts.faFlightId)}`,
-    {},
-  );
-
-  const r = await fetch(url, {
-    method: "GET",
-    headers: { "x-apikey": opts.apiKey, accept: "application/json" },
-    cache: "no-store",
-  });
-
-  return { r, url };
 }
 
 function pickIso(payload: any, keys: string[]): string | null {
@@ -287,8 +207,9 @@ export async function GET(req: Request) {
     const { data: batch, error: batchErr } = await sb
       .from("batches")
       .select(
-        "id, display_time_zone, flight_count, status, created_at, search_payload, included_schedule_keys",
+        "id, display_time_zone, flight_count, status, created_at, search_payload, included_schedule_keys, prediction_window_start_unix, prediction_window_end_unix",
       )
+
       .eq("id", batchId)
       .single();
 
@@ -299,9 +220,15 @@ export async function GET(req: Request) {
       );
     }
 
-    const window = computePredictionWindowFromSearchPayload(
-      (batch as any).search_payload ?? null,
-    );
+    const window = {
+      prediction_window_start_at: unixSecToIso(
+        (batch as any).prediction_window_start_unix,
+      ),
+      prediction_window_end_at: unixSecToIso(
+        (batch as any).prediction_window_end_unix,
+      ),
+      end_when_all_landed: null as boolean | null,
+    };
 
     const { data: flightsRaw, error: flightsErr } = await sb
       .from("batch_flights")
