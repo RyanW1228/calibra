@@ -3,6 +3,7 @@
 
 import React, { useEffect, useMemo, useState } from "react";
 import { useParams, useRouter } from "next/navigation";
+import PredictionsTable from "./components/PredictionsTable";
 
 type BatchFlight = {
   schedule_key: string;
@@ -23,20 +24,13 @@ type BatchGetResponse =
         flight_count: number;
         status: string;
         created_at: string;
+        thresholds_minutes?: number[] | null;
       };
       flights: BatchFlight[];
     }
   | { ok: false; error: string; details?: unknown };
 
 type BatchInfo = Extract<BatchGetResponse, { ok: true }>["batch"];
-
-function fmtISO(iso: string | null | undefined) {
-  if (!iso) return "—";
-  const d = new Date(iso);
-  const ms = d.getTime();
-  if (!Number.isFinite(ms)) return "—";
-  return d.toLocaleString();
-}
 
 export default function SubmitBatchPage() {
   const router = useRouter();
@@ -50,7 +44,7 @@ export default function SubmitBatchPage() {
   const [flights, setFlights] = useState<BatchFlight[]>([]);
 
   const [predByScheduleKey, setPredByScheduleKey] = useState<
-    Record<string, string>
+    Record<string, Record<string, string>>
   >({});
 
   const [uiError, setUiError] = useState<string | null>(null);
@@ -77,7 +71,7 @@ export default function SubmitBatchPage() {
 
       try {
         const res = await fetch(
-          `/api/batches/get?batchId=${encodeURIComponent(batchId)}`,
+          `/api/batches/get-enriched?batchId=${encodeURIComponent(batchId)}`,
           { method: "GET", cache: "no-store" },
         );
 
@@ -92,13 +86,16 @@ export default function SubmitBatchPage() {
         if (!alive) return;
 
         setBatch(json.batch);
+
         const fs = Array.isArray(json.flights) ? json.flights : [];
         setFlights(fs);
 
         setPredByScheduleKey((prev) => {
-          const next: Record<string, string> = { ...prev };
+          const next: Record<string, Record<string, string>> = { ...prev };
           for (const f of fs) {
-            if (!(f.schedule_key in next)) next[f.schedule_key] = "";
+            const key = (f.schedule_key ?? "").trim();
+            if (!key) continue;
+            if (!next[key]) next[key] = {};
           }
           return next;
         });
@@ -117,17 +114,6 @@ export default function SubmitBatchPage() {
     };
   }, [batchId]);
 
-  const filledCount = useMemo(() => {
-    let n = 0;
-    for (const f of flights) {
-      const v = (predByScheduleKey[f.schedule_key] ?? "").trim();
-      if (!v) continue;
-      const x = Number(v);
-      if (Number.isFinite(x) && x >= 0 && x <= 100) n += 1;
-    }
-    return n;
-  }, [flights, predByScheduleKey]);
-
   async function onSubmit() {
     setUiError(null);
     setUiOk(null);
@@ -137,23 +123,36 @@ export default function SubmitBatchPage() {
       return;
     }
 
-    const payload: { schedule_key: string; p_delay_pct: number }[] = [];
+    const payload: {
+      schedule_key: string;
+      probabilities: Record<string, number>;
+    }[] = [];
 
     for (const f of flights) {
-      const raw = (predByScheduleKey[f.schedule_key] ?? "").trim();
-      if (!raw) continue;
+      const key = (f.schedule_key ?? "").trim();
+      if (!key) continue;
 
-      const x = Number(raw);
-      if (!Number.isFinite(x) || x < 0 || x > 100) {
-        setUiError(
-          `Invalid probability for ${f.airline}${f.flight_number} (${f.origin}→${f.destination}). Use 0–100.`,
-        );
-        return;
+      const row = predByScheduleKey[key] ?? {};
+      const probs: Record<string, number> = {};
+
+      for (const [label, raw0] of Object.entries(row)) {
+        const raw = (raw0 ?? "").trim();
+        if (!raw) continue;
+
+        const x = Number(raw);
+        if (!Number.isFinite(x) || x < 0 || x > 100) {
+          setUiError(`Invalid probability for ${key} (${label}). Use 0–100.`);
+          return;
+        }
+
+        probs[label] = Math.round(x * 100) / 100;
       }
 
+      if (Object.keys(probs).length === 0) continue;
+
       payload.push({
-        schedule_key: f.schedule_key,
-        p_delay_pct: Math.round(x * 100) / 100,
+        schedule_key: key,
+        probabilities: probs,
       });
     }
 
@@ -255,101 +254,15 @@ export default function SubmitBatchPage() {
             </div>
           </div>
 
-          <div className="mt-6 rounded-2xl border border-zinc-200 bg-white p-4 dark:border-zinc-800 dark:bg-zinc-950">
-            <div className="flex items-center justify-between gap-4">
-              <div className="text-sm font-semibold text-zinc-900 dark:text-zinc-50">
-                Flights
-              </div>
-
-              <div className="flex items-center gap-3">
-                <div className="text-xs text-zinc-500 dark:text-zinc-400">
-                  Valid predictions:{" "}
-                  <span className="font-mono">{filledCount}</span>/
-                  <span className="font-mono">{flights.length}</span>
-                </div>
-
-                <button
-                  onClick={onSubmit}
-                  disabled={isLoading || flights.length === 0 || isSubmitting}
-                  className="inline-flex h-9 items-center justify-center rounded-xl bg-indigo-600 px-5 text-sm font-medium text-white transition hover:bg-indigo-500 disabled:opacity-60"
-                >
-                  {isSubmitting ? "Submitting…" : "Submit Predictions"}
-                </button>
-              </div>
-            </div>
-
-            <div className="mt-4 overflow-hidden rounded-xl border border-zinc-200 dark:border-zinc-800">
-              <div className="grid grid-cols-12 gap-0 border-b border-zinc-200 bg-zinc-50 px-3 py-2 text-[11px] font-medium text-zinc-600 dark:border-zinc-800 dark:bg-zinc-900/40 dark:text-zinc-300">
-                <div className="col-span-3">Flight</div>
-                <div className="col-span-3">Route</div>
-                <div className="col-span-3">Sched Depart</div>
-                <div className="col-span-2">Sched Arrive</div>
-                <div className="col-span-1 text-right">P(Delay)%</div>
-              </div>
-
-              {isLoading ? (
-                <div className="px-3 py-3 text-sm text-zinc-600 dark:text-zinc-400">
-                  Loading…
-                </div>
-              ) : flights.length === 0 ? (
-                <div className="px-3 py-3 text-sm text-zinc-600 dark:text-zinc-400">
-                  No flights found for this batch.
-                </div>
-              ) : (
-                <div className="divide-y divide-zinc-200 dark:divide-zinc-800">
-                  {flights.map((f) => (
-                    <div
-                      key={f.schedule_key}
-                      className="grid grid-cols-12 items-center gap-0 px-3 py-2"
-                    >
-                      <div className="col-span-3">
-                        <div className="text-sm font-medium text-zinc-900 dark:text-zinc-50">
-                          {f.airline}
-                          {f.flight_number}
-                        </div>
-                        <div className="text-[11px] text-zinc-500 dark:text-zinc-400">
-                          <span className="font-mono">{f.schedule_key}</span>
-                        </div>
-                      </div>
-
-                      <div className="col-span-3 text-sm text-zinc-700 dark:text-zinc-300">
-                        {f.origin} → {f.destination}
-                      </div>
-
-                      <div className="col-span-3 text-sm text-zinc-700 dark:text-zinc-300">
-                        {fmtISO(f.scheduled_depart_iso)}
-                      </div>
-
-                      <div className="col-span-2 text-sm text-zinc-700 dark:text-zinc-300">
-                        {fmtISO(f.scheduled_arrive_iso)}
-                      </div>
-
-                      <div className="col-span-1 flex justify-end">
-                        <input
-                          value={predByScheduleKey[f.schedule_key] ?? ""}
-                          onChange={(e) => {
-                            const v = e.target.value;
-                            setPredByScheduleKey((prev) => ({
-                              ...prev,
-                              [f.schedule_key]: v,
-                            }));
-                          }}
-                          inputMode="decimal"
-                          placeholder="—"
-                          className="h-9 w-20 rounded-lg border border-zinc-200 bg-white px-3 text-right text-sm text-zinc-900 outline-none focus:border-zinc-400 dark:border-zinc-800 dark:bg-zinc-950 dark:text-zinc-50 dark:focus:border-zinc-600"
-                        />
-                      </div>
-                    </div>
-                  ))}
-                </div>
-              )}
-            </div>
-
-            <div className="mt-3 text-xs text-zinc-500 dark:text-zinc-400">
-              Enter a probability from 0 to 100 for each flight you want to
-              predict.
-            </div>
-          </div>
+          <PredictionsTable
+            flights={flights}
+            isLoading={isLoading}
+            thresholdsMinutes={batch?.thresholds_minutes ?? null}
+            predByScheduleKey={predByScheduleKey}
+            setPredByScheduleKey={setPredByScheduleKey}
+            onSubmit={onSubmit}
+            isSubmitting={isSubmitting}
+          />
         </div>
       </main>
     </div>
