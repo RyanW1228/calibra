@@ -1,0 +1,30 @@
+module Calibra.Batch where
+
+import DA.Assert
+import DA.Time
+
+template Batch
+  with
+    operator : Party
+    batchId : Text
+    bountyUsd : Decimal
+    joinFeeUsd : Decimal
+  where
+    signatory operator
+
+template JoinBond
+  with
+    operator : Party
+    predictor : Party
+    batchId : Text
+    bondUsd : Decimal
+    joinedAt : Time
+  where
+    signatory predictor
+    observer operator
+
+    choice Refund : ContractId JoinBond
+      controller operator
+      do
+        archive self
+        pure self

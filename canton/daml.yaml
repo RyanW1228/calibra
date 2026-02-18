@@ -1,0 +1,10 @@
+sdk-version: 2.10.3
+name: calibra-canton
+version: 0.1.0
+source: daml
+parties:
+  - Operator
+dependencies:
+  - daml-prim
+  - daml-stdlib
+  - daml-script
