@@ -8,6 +8,8 @@ import BatchFlightsTable, {
   type BatchPredictionRow,
 } from "./components/BatchFlightsTable";
 
+import BatchPredictionsTable from "./components/BatchPredictionsTable";
+
 type BatchGetResponse =
   | {
       ok: true;
@@ -17,6 +19,7 @@ type BatchGetResponse =
         flight_count: number;
         status: string;
         created_at: string;
+        thresholds_minutes?: number[] | null;
         prediction_window_start_at?: string | null;
         prediction_window_end_at?: string | null;
       };
@@ -94,6 +97,30 @@ function fmtCountdown(ms: number) {
 }
 
 const UPDATE_COOLDOWN_MS = 30_000;
+
+function buildThresholdColumns(thresholds: number[] | null | undefined) {
+  const raw = Array.isArray(thresholds) ? thresholds : [];
+  const cleaned = raw
+    .map((x) =>
+      typeof x === "number" && Number.isFinite(x) ? Math.floor(x) : NaN,
+    )
+    .filter((x) => Number.isFinite(x) && x >= 0);
+
+  const uniqSorted = Array.from(new Set(cleaned)).sort((a, b) => a - b);
+
+  const cols: string[] = [];
+  for (let i = 0; i < uniqSorted.length; i += 1) {
+    const t = uniqSorted[i];
+    if (i === 0) cols.push(`<=${t} min`);
+    else cols.push(`>${uniqSorted[i - 1]} and <=${t} min`);
+  }
+
+  if (uniqSorted.length > 0)
+    cols.push(`>${uniqSorted[uniqSorted.length - 1]} min`);
+
+  cols.push("Cancelled");
+  return cols;
+}
 
 function lastUpdateKey(batchId: string) {
   return `calibra:batch_flights_last_update_ms:${batchId}`;
@@ -318,17 +345,8 @@ export default function BatchPage() {
   }, [predictions]);
 
   const predictionColumns = useMemo(() => {
-    const s = new Set<string>();
-    for (const p of predictions) {
-      const probs = p.probabilities;
-      if (!probs || typeof probs !== "object") continue;
-      for (const k of Object.keys(probs)) {
-        const key = k.trim();
-        if (key) s.add(key);
-      }
-    }
-    return Array.from(s);
-  }, [predictions]);
+    return buildThresholdColumns(batch?.thresholds_minutes ?? null);
+  }, [batch?.thresholds_minutes]);
 
   const windowStartIso = batch?.prediction_window_start_at ?? null;
   const windowEndIso = batch?.prediction_window_end_at ?? null;
@@ -518,7 +536,7 @@ export default function BatchPage() {
           <div className="mt-8 rounded-2xl border border-zinc-200 p-5 dark:border-zinc-800">
             <div className="flex items-center justify-between gap-3">
               <div className="text-sm font-semibold text-zinc-900 dark:text-zinc-50">
-                Flights + Predictions
+                Flights
               </div>
 
               <div className="text-xs text-zinc-500 dark:text-zinc-400">
@@ -534,7 +552,6 @@ export default function BatchPage() {
               predictions={predictionRows}
               isLoading={isLoading}
               displayTimeZone={tz}
-              predictionColumns={predictionColumns}
               onUpdate={handleUpdate}
               updateDisabled={updateDisabled}
               updateLabel={
@@ -542,6 +559,20 @@ export default function BatchPage() {
               }
               updateMetaText={updateMetaText}
             />
+            <div className="mt-10">
+              <div className="flex items-center justify-between gap-3">
+                <div className="text-sm font-semibold text-zinc-900 dark:text-zinc-50">
+                  Prediction Probabilities
+                </div>
+              </div>
+
+              <BatchPredictionsTable
+                flights={flights}
+                predictions={predictionRows}
+                isLoading={isLoading || predLoading}
+                thresholdsMinutes={batch?.thresholds_minutes ?? null}
+              />
+            </div>
           </div>
         </div>
       </main>

@@ -147,16 +147,12 @@ export default function BatchFlightsTable({
       ) : null}
 
       <div className="overflow-auto">
-        <table
-          className={[
-            "text-left text-sm",
-            normalizedPredictionColumns.length > 0
-              ? "min-w-[2200px]"
-              : "min-w-[1900px]",
-          ].join(" ")}
-        >
+        <table className="min-w-[2000px] text-left text-sm">
           <thead className="sticky top-0 z-10 bg-zinc-50 text-xs text-zinc-600 dark:bg-black dark:text-zinc-400">
             <tr>
+              <th className="px-3 py-2 font-medium whitespace-nowrap">
+                Schedule Key
+              </th>
               <th className="px-3 py-2 font-medium whitespace-nowrap">
                 Airline
               </th>
@@ -189,22 +185,6 @@ export default function BatchFlightsTable({
               <th className="px-3 py-2 font-medium whitespace-nowrap">
                 Status
               </th>
-
-              {normalizedPredictionColumns.length > 0 ? (
-                normalizedPredictionColumns.map((c) => (
-                  <th
-                    key={c}
-                    className="px-3 py-2 font-medium whitespace-nowrap text-right"
-                    title={c}
-                  >
-                    {c}
-                  </th>
-                ))
-              ) : (
-                <th className="px-3 py-2 font-medium whitespace-nowrap">
-                  Prediction
-                </th>
-              )}
             </tr>
           </thead>
 
@@ -212,11 +192,7 @@ export default function BatchFlightsTable({
             {isLoading ? (
               <tr>
                 <td
-                  colSpan={
-                    normalizedPredictionColumns.length > 0
-                      ? 12 + normalizedPredictionColumns.length
-                      : 13
-                  }
+                  colSpan={13}
                   className="px-3 py-6 text-zinc-500 dark:text-zinc-400"
                 >
                   Loading…
@@ -263,28 +239,21 @@ export default function BatchFlightsTable({
                   (fallbackStatus ?? "").trim() ||
                   "—";
 
-                const predictionText = p?.outcome
-                  ? `${p.outcome}${
-                      typeof p.confidence === "number"
-                        ? ` (${p.confidence.toFixed(2)})`
-                        : ""
-                    }`
-                  : "—";
-
                 return (
                   <tr
                     key={f.schedule_key}
                     className="border-t border-zinc-100 dark:border-zinc-900"
                   >
-                    <td className="px-3 py-2 font-medium">{f.airline}</td>
+                    <td className="px-3 py-2 font-mono text-xs">
+                      {f.schedule_key}
+                    </td>
+                    <td className="px-3 py-2 font-medium">{f.airline}</td>{" "}
                     <td className="px-3 py-2">{f.flight_number}</td>
-
                     <td className="px-3 py-2">
                       <span className="font-mono text-xs">{f.origin}</span>
                       <span className="mx-2 text-zinc-400">→</span>
                       <span className="font-mono text-xs">{f.destination}</span>
                     </td>
-
                     <td className="px-3 py-2">
                       {formatTime(f.scheduled_depart_iso, displayTimeZone)}
                     </td>
@@ -294,7 +263,6 @@ export default function BatchFlightsTable({
                     <td className="px-3 py-2 font-mono text-xs">
                       {fmtMin(depDeltaMin)}
                     </td>
-
                     <td className="px-3 py-2">
                       {formatTime(f.scheduled_arrive_iso, displayTimeZone)}
                     </td>
@@ -304,31 +272,13 @@ export default function BatchFlightsTable({
                     <td className="px-3 py-2 font-mono text-xs">
                       {fmtMin(expArrDeltaMin)}
                     </td>
-
                     <td className="px-3 py-2">
                       {formatTime(f.actual_arrive_iso ?? null, displayTimeZone)}
                     </td>
                     <td className="px-3 py-2 font-mono text-xs">
                       {fmtMin(actArrDeltaMin)}
                     </td>
-
                     <td className="px-3 py-2">{statusText}</td>
-
-                    {normalizedPredictionColumns.length > 0 ? (
-                      normalizedPredictionColumns.map((c) => {
-                        const v = p?.probabilities?.[c] ?? null;
-                        return (
-                          <td
-                            key={c}
-                            className="px-3 py-2 text-right font-mono text-xs"
-                          >
-                            {pctOrDash(v)}
-                          </td>
-                        );
-                      })
-                    ) : (
-                      <td className="px-3 py-2">{predictionText}</td>
-                    )}
                   </tr>
                 );
               })

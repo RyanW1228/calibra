@@ -11,6 +11,8 @@ type BatchRow = {
   search_payload: any | null;
   included_schedule_keys: string[] | null;
 
+  thresholds_minutes: number[] | null;
+
   prediction_window_start_unix: number | string | null;
   prediction_window_end_unix: number | string | null;
 };
@@ -207,7 +209,7 @@ export async function GET(req: Request) {
     const { data: batch, error: batchErr } = await sb
       .from("batches")
       .select(
-        "id, display_time_zone, flight_count, status, created_at, search_payload, included_schedule_keys, prediction_window_start_unix, prediction_window_end_unix",
+        "id, display_time_zone, flight_count, status, created_at, search_payload, included_schedule_keys, thresholds_minutes, prediction_window_start_unix, prediction_window_end_unix",
       )
 
       .eq("id", batchId)
