@@ -33,16 +33,32 @@ template Batch
         probabilitiesJson : Text
       controller predictor
       do
-        mb <- lookupByKey @JoinBond (operator, batchId, predictor)
-        case mb of
+        mbJoin <- lookupByKey @JoinBond (operator, batchId, predictor)
+        case mbJoin of
           None -> abort "Must join (post bond) before submitting predictions."
-          Some _ ->
-            create Prediction with
+          Some _ -> do
+            submissionCid <- create PredictionSubmission with
               operator
               batchId
               submitter = predictor
               submittedAt
               probabilitiesJson
+
+            mbPred <- lookupByKey @Prediction (operator, batchId, predictor)
+            case mbPred of
+              None ->
+                create Prediction with
+                  operator
+                  batchId
+                  submitter = predictor
+                  latestSubmittedAt = submittedAt
+                  latestProbabilitiesJson = probabilitiesJson
+                  latestSubmissionCid = submissionCid
+              Some predCid ->
+                exercise predCid UpdatePrediction with
+                  newSubmittedAt = submittedAt
+                  newProbabilitiesJson = probabilitiesJson
+                  newSubmissionCid = submissionCid
 
 
 template JoinBond
@@ -67,7 +83,7 @@ template JoinBond
         pure ()
 
 
-template Prediction
+template PredictionSubmission
   with
     operator : Party
     batchId : Text
@@ -77,3 +93,35 @@ template Prediction
   where
     signatory submitter
     observer operator
+
+
+template Prediction
+  with
+    operator : Party
+    batchId : Text
+    submitter : Party
+    latestSubmittedAt : Time
+    latestProbabilitiesJson : Text
+    latestSubmissionCid : ContractId PredictionSubmission
+  where
+    signatory submitter
+    observer operator
+
+    key (operator, batchId, submitter) : (Party, Text, Party)
+    maintainer (case key of (_, _, s) -> s)
+
+    choice UpdatePrediction : ContractId Prediction
+      with
+        newSubmittedAt : Time
+        newProbabilitiesJson : Text
+        newSubmissionCid : ContractId PredictionSubmission
+      controller submitter
+      do
+        archive self
+        create Prediction with
+          operator
+          batchId
+          submitter
+          latestSubmittedAt = newSubmittedAt
+          latestProbabilitiesJson = newProbabilitiesJson
+          latestSubmissionCid = newSubmissionCid
