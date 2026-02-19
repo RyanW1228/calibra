@@ -1,7 +1,7 @@
 // calibra/src/app/fund/[batchId]/components/BatchParamsCard.tsx
 "use client";
 
-import React, { useMemo } from "react";
+import React, { useEffect, useMemo } from "react";
 
 type OutcomeThreshold = {
   id: string;
@@ -21,6 +21,7 @@ type Props = {
   setThresholds: (v: OutcomeThreshold[]) => void;
 
   maxThresholds?: number;
+  timeZone?: string;
 };
 
 function fmtMinutes(m: number) {
@@ -44,16 +45,43 @@ function outcomeLabelsFromThresholds(raw: OutcomeThreshold[]) {
   }
 
   const labels: string[] = [];
+
   if (uniq.length === 0) {
-    labels.push("Arrives (any delay)");
+    labels.push(
+      "Actual arrival time occurs at or before the scheduled arrival time.",
+    );
   } else {
-    labels.push(`Arrival ≤ ${fmtMinutes(uniq[0])}`);
+    // First bucket
+    labels.push(
+      `Actual arrival time occurs no later than ${fmtMinutes(
+        uniq[0],
+      )} after the scheduled arrival time.`,
+    );
+
+    // Intermediate buckets
     for (let i = 1; i < uniq.length; i++) {
-      labels.push(`${fmtMinutes(uniq[i - 1])} – ${fmtMinutes(uniq[i])}`);
+      labels.push(
+        `Actual arrival time occurs more than ${fmtMinutes(
+          uniq[i - 1],
+        )} and no later than ${fmtMinutes(
+          uniq[i],
+        )} after the scheduled arrival time.`,
+      );
     }
-    labels.push(`Arrival > ${fmtMinutes(uniq[uniq.length - 1])}`);
+
+    // Final bucket
+    labels.push(
+      `Actual arrival time occurs more than ${fmtMinutes(
+        uniq[uniq.length - 1],
+      )} after the scheduled arrival time.`,
+    );
   }
-  labels.push("Flight does not arrive");
+
+  // Non-arrival outcome
+  labels.push(
+    "The flight does not arrive (diversion, cancellation, or missing arrival record).",
+  );
+
   return labels;
 }
 
@@ -75,8 +103,10 @@ export default function BatchParamsCard({
   thresholds,
   setThresholds,
   maxThresholds = 5,
+  timeZone,
 }: Props) {
   const disableManualEnd = endWhenAllLanded;
+  const [startImmediately, setStartImmediately] = React.useState(false);
 
   const labels = useMemo(
     () => outcomeLabelsFromThresholds(thresholds),
@@ -107,16 +137,27 @@ export default function BatchParamsCard({
     setWindowStartLocal(toDatetimeLocalFromUnixSeconds(nowU));
   };
 
-  const startInOneHour = () => {
-    const u = Math.floor(Date.now() / 1000) + 60 * 60;
-    setWindowStartLocal(toDatetimeLocalFromUnixSeconds(u));
-  };
+  useEffect(() => {
+    if (windowStartLocal) return;
+    const nowU = Math.floor(Date.now() / 1000);
+    setWindowStartLocal(toDatetimeLocalFromUnixSeconds(nowU));
+  }, []);
 
   return (
     <div className="mt-8 rounded-2xl border border-zinc-200 p-5 dark:border-zinc-800">
       <div className="flex flex-col gap-2">
-        <div className="text-sm font-semibold text-zinc-900 dark:text-zinc-50">
-          Batch Parameters
+        <div className="flex items-center justify-between gap-3">
+          <div className="flex flex-wrap items-center gap-2">
+            <div className="text-sm font-semibold text-zinc-900 dark:text-zinc-50">
+              Batch Parameters
+            </div>
+
+            {timeZone ? (
+              <span className="inline-flex items-center rounded-full border border-zinc-200 bg-zinc-50 px-2 py-0.5 text-[11px] font-medium text-zinc-700 dark:border-zinc-800 dark:bg-black dark:text-zinc-200">
+                {timeZone}
+              </span>
+            ) : null}
+          </div>
         </div>
 
         <div className="mt-3 grid gap-3 sm:grid-cols-2">
@@ -128,35 +169,27 @@ export default function BatchParamsCard({
               value={windowStartLocal}
               onChange={(e) => setWindowStartLocal(e.target.value)}
               type="datetime-local"
-              className="h-10 w-full rounded-xl border border-zinc-200 bg-white px-4 text-sm text-zinc-900 outline-none focus:border-zinc-400 dark:border-zinc-800 dark:bg-zinc-950 dark:text-zinc-50 dark:focus:border-zinc-600"
+              disabled={startImmediately}
+              className={[
+                "h-10 w-full rounded-xl border px-4 text-sm outline-none",
+                startImmediately
+                  ? "cursor-not-allowed border-zinc-200 bg-zinc-100 text-zinc-500 dark:border-zinc-800 dark:bg-zinc-900 dark:text-zinc-400"
+                  : "border-zinc-200 bg-white text-zinc-900 focus:border-zinc-400 dark:border-zinc-800 dark:bg-zinc-950 dark:text-zinc-50 dark:focus:border-zinc-600",
+              ].join(" ")}
             />
 
             <label className="mt-1 flex items-center gap-2 text-sm text-zinc-900 dark:text-zinc-50">
               <input
                 type="checkbox"
-                checked={false}
+                checked={startImmediately}
                 onChange={(e) => {
-                  if (e.target.checked) startNow();
+                  const next = e.target.checked;
+                  setStartImmediately(next);
+                  if (next) startNow();
                 }}
               />
               Start immediately
             </label>
-
-            <label className="mt-1 flex items-center gap-2 text-sm text-zinc-900 dark:text-zinc-50">
-              <input
-                type="checkbox"
-                checked={false}
-                onChange={(e) => {
-                  if (e.target.checked) startInOneHour();
-                }}
-              />
-              Start in one hour
-            </label>
-
-            <div className="text-xs text-zinc-500 dark:text-zinc-400">
-              Tip: these set the start time once; you can still edit the field
-              manually after.
-            </div>
           </div>
 
           <div className="flex flex-col gap-2">
@@ -193,13 +226,9 @@ export default function BatchParamsCard({
         </div>
 
         <div className="mt-4 flex flex-col gap-2">
-          <div className="text-xs text-zinc-500 dark:text-zinc-400">
-            Outcomes (partition)
-          </div>
-
           <div className="mt-1 flex flex-col gap-2">
             <div className="text-sm text-zinc-900 dark:text-zinc-50">
-              Delay thresholds
+              Delay Thresholds
             </div>
 
             <div className="flex flex-col gap-2">
@@ -245,18 +274,14 @@ export default function BatchParamsCard({
                       : "border-zinc-200 text-zinc-900 hover:bg-zinc-50 dark:border-zinc-800 dark:text-zinc-50 dark:hover:bg-zinc-900",
                   ].join(" ")}
                 >
-                  Add threshold
+                  Add Threshold
                 </button>
-
-                <div className="text-xs text-zinc-500 dark:text-zinc-400">
-                  Up to {maxThresholds}
-                </div>
               </div>
             </div>
 
             <div className="mt-3 rounded-xl border border-zinc-200 bg-white p-3 dark:border-zinc-800 dark:bg-zinc-950">
               <div className="text-xs font-semibold text-zinc-900 dark:text-zinc-50">
-                Partition preview
+                Partition Preview
               </div>
               <div className="mt-2 flex flex-col gap-1">
                 {labels.map((l) => (
@@ -268,11 +293,6 @@ export default function BatchParamsCard({
                   </div>
                 ))}
               </div>
-            </div>
-
-            <div className="text-xs text-zinc-500 dark:text-zinc-400">
-              Note: thresholds are sorted automatically and duplicates are
-              ignored for the preview.
             </div>
           </div>
         </div>

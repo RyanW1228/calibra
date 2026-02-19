@@ -128,13 +128,18 @@ export default function FundBatchPage() {
     return v || "UTC";
   }, [batch]);
 
-  const { isConnected } = useAccount();
+  const { address, isConnected } = useAccount();
   const chainId = useChainId();
   const { connectAsync, connectors } = useConnect();
   const { disconnect } = useDisconnect();
   const { switchChainAsync } = useSwitchChain();
   const publicClient = usePublicClient();
   const { writeContractAsync } = useWriteContract();
+
+  const addr = useMemo(() => {
+    if (!address) return null;
+    return address as Address;
+  }, [address]);
 
   useEffect(() => {
     let alive = true;
@@ -393,12 +398,26 @@ export default function FundBatchPage() {
 
             <div className="flex items-center gap-2">
               {isConnected ? (
-                <button
-                  onClick={() => disconnect()}
-                  className="inline-flex h-9 items-center justify-center rounded-full border border-zinc-200 bg-white px-4 text-xs font-medium text-zinc-900 transition hover:bg-zinc-50 dark:border-zinc-800 dark:bg-zinc-950 dark:text-zinc-50 dark:hover:bg-black"
-                >
-                  Disconnect
-                </button>
+                <>
+                  <div className="hidden flex-col items-end gap-1 sm:flex">
+                    <div className="text-[11px] text-zinc-500 dark:text-zinc-400">
+                      {addr ? (
+                        <span className="font-mono">
+                          {addr.slice(0, 6)}…{addr.slice(-4)}
+                        </span>
+                      ) : (
+                        "Connected"
+                      )}
+                    </div>
+                  </div>
+
+                  <button
+                    onClick={() => disconnect()}
+                    className="inline-flex h-9 items-center justify-center rounded-full border border-zinc-200 bg-white px-4 text-xs font-medium text-zinc-900 transition hover:bg-zinc-50 dark:border-zinc-800 dark:bg-zinc-950 dark:text-zinc-50 dark:hover:bg-black"
+                  >
+                    Disconnect
+                  </button>
+                </>
               ) : (
                 <button
                   onClick={async () => {
@@ -448,39 +467,6 @@ export default function FundBatchPage() {
             </div>
           ) : null}
 
-          <div className="mt-6 grid gap-4 sm:grid-cols-3">
-            <div className="rounded-xl border border-zinc-200 p-4 dark:border-zinc-800">
-              <div className="text-xs text-zinc-500 dark:text-zinc-400">
-                Status
-              </div>
-              <div className="mt-1 text-sm font-medium text-zinc-900 dark:text-zinc-50">
-                {batch?.status ?? (isLoading ? "Loading…" : "—")}
-              </div>
-            </div>
-
-            <div className="rounded-xl border border-zinc-200 p-4 dark:border-zinc-800">
-              <div className="text-xs text-zinc-500 dark:text-zinc-400">
-                Flight Count
-              </div>
-              <div className="mt-1 text-sm font-medium text-zinc-900 dark:text-zinc-50">
-                {typeof batch?.flight_count === "number"
-                  ? batch.flight_count
-                  : isLoading
-                    ? "Loading…"
-                    : "—"}
-              </div>
-            </div>
-
-            <div className="rounded-xl border border-zinc-200 p-4 dark:border-zinc-800">
-              <div className="text-xs text-zinc-500 dark:text-zinc-400">
-                Display Time Zone
-              </div>
-              <div className="mt-1 text-sm font-medium text-zinc-900 dark:text-zinc-50">
-                {tz}
-              </div>
-            </div>
-          </div>
-
           <BatchParamsCard
             windowStartLocal={windowStartLocal}
             setWindowStartLocal={setWindowStartLocal}
@@ -491,6 +477,7 @@ export default function FundBatchPage() {
             thresholds={thresholds}
             setThresholds={setThresholds}
             maxThresholds={maxThresholds}
+            timeZone={tz}
           />
 
           <FundAmountCard
