@@ -142,11 +142,11 @@ export default function BatchPortfolioTable({
               </th>
 
               <th className="w-32 px-3 py-2 font-medium whitespace-nowrap">
-                Scheduled Depart
+                Scheduled Departure
               </th>
 
               <th className="w-32 px-3 py-2 font-medium whitespace-nowrap">
-                Scheduled Arrive
+                Scheduled Arrival
               </th>
 
               <th className="w-24 px-3 py-2 font-medium whitespace-nowrap">

@@ -384,7 +384,7 @@ export default function FundBatchPage() {
 
   return (
     <div className="flex min-h-screen items-center justify-center bg-zinc-50 font-sans dark:bg-black">
-      <main className="w-full max-w-5xl px-6 py-12">
+      <main className="w-full max-w-[1050px] px-6 py-12">
         <div className="rounded-2xl bg-white p-8 shadow-sm dark:bg-zinc-950">
           <div className="flex items-start justify-between gap-6">
             <div className="flex flex-col gap-2">

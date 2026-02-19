@@ -39,7 +39,13 @@ export default function FlightsTable({ flights, isLoading, tz }: Props) {
   return (
     <div className="mt-8 overflow-hidden rounded-2xl border border-zinc-200 dark:border-zinc-800">
       <div className="flex items-center justify-between border-b border-zinc-200 bg-zinc-50 px-5 py-3 text-xs text-zinc-600 dark:border-zinc-800 dark:bg-black dark:text-zinc-400">
-        <div className="font-medium">Flights</div>
+        <div className="flex items-center gap-2">
+          <div className="font-medium">Flights</div>
+          <span className="inline-flex items-center rounded-full border border-zinc-200 bg-white px-2 py-0.5 text-[11px] font-medium text-zinc-700 dark:border-zinc-800 dark:bg-zinc-950 dark:text-zinc-200">
+            {tz}
+          </span>
+        </div>
+
         <div>{isLoading ? "Loading…" : `${flights.length}`}</div>
       </div>
 
@@ -52,10 +58,10 @@ export default function FlightsTable({ flights, isLoading, tz }: Props) {
               </th>
               <th className="px-5 py-3 font-medium whitespace-nowrap">Route</th>
               <th className="px-5 py-3 font-medium whitespace-nowrap">
-                Sched Dep
+                Scheduled Departure
               </th>
               <th className="px-5 py-3 font-medium whitespace-nowrap">
-                Sched Arr
+                Scheduled Arrival
               </th>
               <th className="px-5 py-3 font-medium whitespace-nowrap">
                 Schedule Key
