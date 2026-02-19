@@ -1,4 +1,3 @@
-// app/components/FlightFilters.tsx
 "use client";
 
 import React, { useEffect, useMemo, useState } from "react";
@@ -44,14 +43,12 @@ type Props = {
   isLoading: boolean;
   onSearch: (payload: SearchPayloadV1) => void;
 
-  // Optional: let parent own TZ; if omitted, this component owns TZ internally.
   displayTimeZone?: string;
   onDisplayTimeZoneChange?: (tz: string) => void;
 
-  // Optional defaults
   defaultOrigin?: string;
   defaultDestination?: string;
-  defaultCarriersCsv?: string; // "UA,DL"
+  defaultCarriersCsv?: string;
   defaultLimit?: number;
 };
 
@@ -131,10 +128,10 @@ function formatClock(now: Date, timeZone: string) {
 
 const TIMEZONE_OPTIONS: Array<{ label: string; value: string }> = [
   { label: "UTC", value: "UTC" },
-  { label: "New York (America/New_York)", value: "America/New_York" },
-  { label: "Denver (America/Denver)", value: "America/Denver" },
-  { label: "Los Angeles (America/Los_Angeles)", value: "America/Los_Angeles" },
-  { label: "London (Europe/London)", value: "Europe/London" },
+  { label: "New York", value: "America/New_York" },
+  { label: "Denver", value: "America/Denver" },
+  { label: "Los Angeles", value: "America/Los_Angeles" },
+  { label: "London", value: "Europe/London" },
 ];
 
 const DOW: Array<{ label: string; value: number }> = [
@@ -161,7 +158,6 @@ export default function FlightFilters(props: Props) {
 
   const [mode, setMode] = useState<"schedule" | "lookup">("schedule");
 
-  // TZ: either controlled by parent or internal
   const [displayTimeZoneLocal, setDisplayTimeZoneLocal] = useState(
     displayTimeZoneProp ?? "UTC",
   );
@@ -176,9 +172,8 @@ export default function FlightFilters(props: Props) {
     [now, displayTimeZone],
   );
 
-  // Schedule mode fields
   const [dateStart, setDateStart] = useState(todayISO());
-  const [dateEnd, setDateEnd] = useState(addDaysISO(todayISO(), 1)); // exclusive
+  const [dateEnd, setDateEnd] = useState(addDaysISO(todayISO(), 1));
 
   const [originsCsv, setOriginsCsv] = useState(defaultOrigin ?? "");
   const [destinationsCsv, setDestinationsCsv] = useState(
@@ -203,21 +198,11 @@ export default function FlightFilters(props: Props) {
   const [sortBy, setSortBy] = useState<"schedDep" | "schedArr">("schedDep");
   const [sortOrder, setSortOrder] = useState<"asc" | "desc">("asc");
 
-  const [limitText, setLimitText] = useState<string>(
-    String(defaultLimit ?? 50),
-  );
-
-  const [enrichEnabled, setEnrichEnabled] = useState(false);
-  const [enrichMaxText, setEnrichMaxText] = useState<string>("25");
-
-  // Lookup mode fields
   const [faFlightIdsText, setFaFlightIdsText] = useState("");
   const [scheduleKeysText, setScheduleKeysText] = useState("");
 
-  // Keep internal TZ in sync if parent starts controlling later
   useEffect(() => {
     if (displayTimeZoneProp !== undefined) return;
-    // no-op (uncontrolled)
   }, [displayTimeZoneProp]);
 
   function setTimeZone(next: string) {
@@ -275,14 +260,10 @@ export default function FlightFilters(props: Props) {
       dedupeMode,
       sort: { by: sortBy, order: sortOrder },
 
-      limit: clampInt(Number(limitText), 1, 200),
-
-      enrich: enrichEnabled
-        ? { enabled: true, max: clampInt(Number(enrichMaxText), 1, 200) }
-        : { enabled: false },
+      limit: clampInt(Number(defaultLimit ?? 50), 1, 200),
+      enrich: { enabled: false },
     };
 
-    // Basic validation for HH:MM only if enabled
     if (departWindowEnabled) {
       if (!isValidHHMM(departStartHHMM) || !isValidHHMM(departEndHHMM)) {
         return { error: "Depart time window must be HH:MM (00:00–23:59)" };
@@ -301,9 +282,7 @@ export default function FlightFilters(props: Props) {
       displayTimeZone,
       faFlightIds: faFlightIds.length ? faFlightIds : null,
       scheduleKeys: scheduleKeys.length ? scheduleKeys : null,
-      enrich: enrichEnabled
-        ? { enabled: true, max: clampInt(Number(enrichMaxText), 1, 200) }
-        : { enabled: false },
+      enrich: { enabled: false },
     };
   }
 
@@ -311,8 +290,6 @@ export default function FlightFilters(props: Props) {
     if (mode === "schedule") {
       const built = buildSchedulePayload();
       if ("error" in built) {
-        // Keep it simple: parent can show error too later; for now use alert
-        // (We can wire a nicer inline error once this component is integrated.)
         window.alert(built.error);
         return;
       }
@@ -324,26 +301,40 @@ export default function FlightFilters(props: Props) {
     onSearch(p);
   }
 
+  const inputClass =
+    "mt-1 w-full rounded-xl border border-zinc-200 bg-white px-3 py-2 text-sm text-zinc-900 outline-none focus:border-zinc-400 focus:ring-2 focus:ring-zinc-200 dark:border-zinc-800 dark:bg-zinc-950 dark:text-zinc-50 dark:focus:border-zinc-600 dark:focus:ring-zinc-900";
+  const labelClass =
+    "block text-xs font-medium text-zinc-700 dark:text-zinc-300";
+  const helpClass = "mt-1 text-[11px] text-zinc-500 dark:text-zinc-400";
+  const chipOn =
+    "bg-zinc-900 text-white shadow-sm dark:bg-zinc-50 dark:text-zinc-900";
+  const chipOff =
+    "border border-zinc-200 bg-white text-zinc-900 hover:bg-zinc-50 dark:border-zinc-800 dark:bg-zinc-950 dark:text-zinc-50 dark:hover:bg-black";
+
   return (
-    <div className="rounded-2xl border border-zinc-200 p-5 dark:border-zinc-800">
-      <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
-        <div>
-          <h2 className="text-sm font-semibold text-zinc-900 dark:text-zinc-50">
-            Filters
-          </h2>
+    <section className="rounded-2xl border border-zinc-200 bg-white shadow-sm dark:border-zinc-800 dark:bg-zinc-950">
+      <header className="flex flex-col gap-3 border-b border-zinc-200 px-5 py-4 dark:border-zinc-800 sm:flex-row sm:items-center sm:justify-between">
+        <div className="min-w-0">
+          <div className="flex flex-wrap items-center gap-2">
+            <h2 className="text-sm font-semibold text-zinc-950 dark:text-zinc-50">
+              Flight Filters
+            </h2>
+            <span className="inline-flex items-center rounded-full border border-zinc-200 bg-zinc-50 px-2 py-0.5 text-[11px] font-medium text-zinc-700 dark:border-zinc-800 dark:bg-black dark:text-zinc-200">
+              {displayTimeZone}
+            </span>
+          </div>
           <div className="mt-1 text-xs text-zinc-500 dark:text-zinc-400">
-            Now ({displayTimeZone}):{" "}
-            <span className="font-mono">{nowLabel}</span>
+            Current time: <span className="font-mono">{nowLabel}</span>
           </div>
         </div>
 
         <div className="flex flex-wrap items-center gap-2">
-          <label className="flex items-center gap-2 text-xs text-zinc-500 dark:text-zinc-400">
-            <span>Display TZ</span>
+          <label className="flex items-center gap-2 text-xs font-medium text-zinc-700 dark:text-zinc-300">
+            <span className="whitespace-nowrap">Display TZ</span>
             <select
               value={displayTimeZone}
               onChange={(e) => setTimeZone(e.target.value)}
-              className="h-9 rounded-xl border border-zinc-200 bg-white px-3 text-xs text-zinc-900 outline-none focus:border-zinc-400 dark:border-zinc-800 dark:bg-zinc-950 dark:text-zinc-50"
+              className="h-10 rounded-xl border border-zinc-200 bg-white px-3 text-xs text-zinc-900 outline-none focus:border-zinc-400 focus:ring-2 focus:ring-zinc-200 dark:border-zinc-800 dark:bg-zinc-950 dark:text-zinc-50 dark:focus:border-zinc-600 dark:focus:ring-zinc-900"
             >
               {TIMEZONE_OPTIONS.map((tz) => (
                 <option key={tz.value} value={tz.value}>
@@ -355,444 +346,311 @@ export default function FlightFilters(props: Props) {
 
           <div className="h-6 w-px bg-zinc-200 dark:bg-zinc-800" />
 
-          <div className="inline-flex rounded-xl border border-zinc-200 bg-white p-1 dark:border-zinc-800 dark:bg-zinc-950">
+          <div className="inline-flex rounded-xl border border-zinc-200 bg-zinc-50 p-1 dark:border-zinc-800 dark:bg-black">
             <button
               type="button"
               onClick={() => setMode("schedule")}
-              className={`h-8 rounded-lg px-3 text-xs font-medium ${
+              className={`h-8 rounded-lg px-3 text-xs font-semibold transition ${
                 mode === "schedule"
-                  ? "bg-zinc-900 text-white dark:bg-zinc-50 dark:text-zinc-900"
-                  : "text-zinc-700 hover:bg-zinc-50 dark:text-zinc-300 dark:hover:bg-black"
+                  ? chipOn
+                  : "text-zinc-700 dark:text-zinc-300"
               }`}
             >
-              Schedule Search
+              Schedule
             </button>
             <button
               type="button"
               onClick={() => setMode("lookup")}
-              className={`h-8 rounded-lg px-3 text-xs font-medium ${
-                mode === "lookup"
-                  ? "bg-zinc-900 text-white dark:bg-zinc-50 dark:text-zinc-900"
-                  : "text-zinc-700 hover:bg-zinc-50 dark:text-zinc-300 dark:hover:bg-black"
+              className={`h-8 rounded-lg px-3 text-xs font-semibold transition ${
+                mode === "lookup" ? chipOn : "text-zinc-700 dark:text-zinc-300"
               }`}
             >
-              Lookup IDs / Keys
+              Lookup
             </button>
           </div>
         </div>
-      </div>
+      </header>
 
-      {mode === "schedule" ? (
-        <>
-          <div className="mt-5 grid grid-cols-1 gap-4 md:grid-cols-6">
-            <div className="md:col-span-2">
-              <label className="block text-xs font-medium text-zinc-600 dark:text-zinc-400">
-                Origins (comma-separated)
-              </label>
-              <input
-                value={originsCsv}
-                onChange={(e) => setOriginsCsv(e.target.value)}
-                placeholder="DEN, SFO"
-                className="mt-1 w-full rounded-xl border border-zinc-200 bg-white px-3 py-2 text-sm text-zinc-900 outline-none focus:border-zinc-400 dark:border-zinc-800 dark:bg-zinc-950 dark:text-zinc-50"
-              />
-              <div className="mt-1 text-[11px] text-zinc-500 dark:text-zinc-400">
-                Leave blank for wildcard.
-              </div>
-            </div>
-
-            <div className="md:col-span-2">
-              <label className="block text-xs font-medium text-zinc-600 dark:text-zinc-400">
-                Destinations (comma-separated)
-              </label>
-              <input
-                value={destinationsCsv}
-                onChange={(e) => setDestinationsCsv(e.target.value)}
-                placeholder="JFK, LAX"
-                className="mt-1 w-full rounded-xl border border-zinc-200 bg-white px-3 py-2 text-sm text-zinc-900 outline-none focus:border-zinc-400 dark:border-zinc-800 dark:bg-zinc-950 dark:text-zinc-50"
-              />
-              <div className="mt-1 text-[11px] text-zinc-500 dark:text-zinc-400">
-                Leave blank for wildcard.
-              </div>
-            </div>
-
-            <div className="md:col-span-2">
-              <label className="block text-xs font-medium text-zinc-600 dark:text-zinc-400">
-                Carriers (comma-separated)
-              </label>
-              <input
-                value={carriersCsv}
-                onChange={(e) => setCarriersCsv(e.target.value)}
-                placeholder="UA, DL, AA"
-                className="mt-1 w-full rounded-xl border border-zinc-200 bg-white px-3 py-2 text-sm text-zinc-900 outline-none focus:border-zinc-400 dark:border-zinc-800 dark:bg-zinc-950 dark:text-zinc-50"
-              />
-              <div className="mt-1 text-[11px] text-zinc-500 dark:text-zinc-400">
-                Leave blank for all carriers.
-              </div>
-            </div>
-          </div>
-
-          <div className="mt-5 grid grid-cols-1 gap-4 md:grid-cols-6">
-            <div className="md:col-span-2">
-              <label className="block text-xs font-medium text-zinc-600 dark:text-zinc-400">
-                Date Start
-              </label>
-              <input
-                type="date"
-                value={dateStart}
-                onChange={(e) => setDateStart(e.target.value)}
-                className="mt-1 w-full rounded-xl border border-zinc-200 bg-white px-3 py-2 text-sm text-zinc-900 outline-none focus:border-zinc-400 dark:border-zinc-800 dark:bg-zinc-950 dark:text-zinc-50"
-              />
-            </div>
-
-            <div className="md:col-span-2">
-              <label className="block text-xs font-medium text-zinc-600 dark:text-zinc-400">
-                Date End (exclusive)
-              </label>
-              <input
-                type="date"
-                value={dateEnd}
-                onChange={(e) => setDateEnd(e.target.value)}
-                className="mt-1 w-full rounded-xl border border-zinc-200 bg-white px-3 py-2 text-sm text-zinc-900 outline-none focus:border-zinc-400 dark:border-zinc-800 dark:bg-zinc-950 dark:text-zinc-50"
-              />
-            </div>
-
-            <div className="md:col-span-2">
-              <label className="block text-xs font-medium text-zinc-600 dark:text-zinc-400">
-                Horizon Presets
-              </label>
-              <div className="mt-1 flex flex-wrap gap-2">
-                <button
-                  type="button"
-                  onClick={() => setHorizon(2)}
-                  className="h-10 rounded-xl border border-zinc-200 bg-white px-3 text-xs font-medium text-zinc-900 hover:bg-zinc-50 dark:border-zinc-800 dark:bg-zinc-950 dark:text-zinc-50 dark:hover:bg-black"
-                >
-                  Next 2 days
-                </button>
-                <button
-                  type="button"
-                  onClick={() => setHorizon(7)}
-                  className="h-10 rounded-xl border border-zinc-200 bg-white px-3 text-xs font-medium text-zinc-900 hover:bg-zinc-50 dark:border-zinc-800 dark:bg-zinc-950 dark:text-zinc-50 dark:hover:bg-black"
-                >
-                  Next 7 days
-                </button>
-                <button
-                  type="button"
-                  onClick={() => setHorizon(30)}
-                  className="h-10 rounded-xl border border-zinc-200 bg-white px-3 text-xs font-medium text-zinc-900 hover:bg-zinc-50 dark:border-zinc-800 dark:bg-zinc-950 dark:text-zinc-50 dark:hover:bg-black"
-                >
-                  Next 30 days
-                </button>
-              </div>
-              <div className="mt-1 text-[11px] text-zinc-500 dark:text-zinc-400">
-                Sets dateStart=today and dateEnd=today+N (exclusive).
-              </div>
-            </div>
-          </div>
-
-          <details className="mt-5 rounded-2xl border border-zinc-200 p-4 dark:border-zinc-800">
-            <summary className="cursor-pointer select-none text-sm font-semibold text-zinc-900 dark:text-zinc-50">
-              Advanced Filters
-            </summary>
-
-            <div className="mt-4 grid grid-cols-1 gap-4 md:grid-cols-6">
-              <div className="md:col-span-3">
-                <div className="flex items-center justify-between">
-                  <label className="text-xs font-medium text-zinc-600 dark:text-zinc-400">
-                    Departure Time Window ({displayTimeZone})
-                  </label>
-                  <label className="flex items-center gap-2 text-xs text-zinc-500 dark:text-zinc-400">
-                    <input
-                      type="checkbox"
-                      checked={departWindowEnabled}
-                      onChange={(e) => setDepartWindowEnabled(e.target.checked)}
-                    />
-                    Enable
-                  </label>
-                </div>
-
-                <div className="mt-2 grid grid-cols-2 gap-2">
-                  <input
-                    value={departStartHHMM}
-                    onChange={(e) => setDepartStartHHMM(e.target.value)}
-                    disabled={!departWindowEnabled}
-                    placeholder="HH:MM"
-                    className="w-full rounded-xl border border-zinc-200 bg-white px-3 py-2 text-sm text-zinc-900 outline-none focus:border-zinc-400 disabled:opacity-60 dark:border-zinc-800 dark:bg-zinc-950 dark:text-zinc-50"
-                  />
-                  <input
-                    value={departEndHHMM}
-                    onChange={(e) => setDepartEndHHMM(e.target.value)}
-                    disabled={!departWindowEnabled}
-                    placeholder="HH:MM"
-                    className="w-full rounded-xl border border-zinc-200 bg-white px-3 py-2 text-sm text-zinc-900 outline-none focus:border-zinc-400 disabled:opacity-60 dark:border-zinc-800 dark:bg-zinc-950 dark:text-zinc-50"
-                  />
-                </div>
-
-                <div className="mt-1 text-[11px] text-zinc-500 dark:text-zinc-400">
-                  Uses display timezone. Supports overnight windows later
-                  (backend).
-                </div>
-              </div>
-
-              <div className="md:col-span-3">
-                <label className="block text-xs font-medium text-zinc-600 dark:text-zinc-400">
-                  Days of Week (optional)
-                </label>
-                <div className="mt-2 flex flex-wrap gap-2">
-                  {DOW.map((d) => {
-                    const on = daysOfWeek.includes(d.value);
-                    return (
-                      <button
-                        key={d.value}
-                        type="button"
-                        onClick={() => toggleDow(d.value)}
-                        className={`h-9 rounded-xl px-3 text-xs font-medium ${
-                          on
-                            ? "bg-zinc-900 text-white dark:bg-zinc-50 dark:text-zinc-900"
-                            : "border border-zinc-200 bg-white text-zinc-900 hover:bg-zinc-50 dark:border-zinc-800 dark:bg-zinc-950 dark:text-zinc-50 dark:hover:bg-black"
-                        }`}
-                      >
-                        {d.label}
-                      </button>
-                    );
-                  })}
-                </div>
-                <div className="mt-1 text-[11px] text-zinc-500 dark:text-zinc-400">
-                  Interpreted in display timezone.
-                </div>
-              </div>
-            </div>
-
-            <div className="mt-4 grid grid-cols-1 gap-4 md:grid-cols-6">
+      <div className="px-5 py-5">
+        {mode === "schedule" ? (
+          <>
+            <div className="grid grid-cols-1 gap-4 md:grid-cols-6">
               <div className="md:col-span-2">
-                <label className="block text-xs font-medium text-zinc-600 dark:text-zinc-400">
-                  Identity / Codeshares
-                </label>
-                <div className="mt-2 flex flex-col gap-2 text-xs text-zinc-600 dark:text-zinc-400">
-                  <label className="flex items-center gap-2">
-                    <input
-                      type="checkbox"
-                      checked={includeRegional}
-                      onChange={(e) => setIncludeRegional(e.target.checked)}
-                    />
-                    Include regional
-                  </label>
-                  <label className="flex items-center gap-2">
-                    <input
-                      type="checkbox"
-                      checked={includeCodeshares}
-                      onChange={(e) => setIncludeCodeshares(e.target.checked)}
-                    />
-                    Include codeshares (marketing duplicates)
-                  </label>
-                  <label className="flex items-center gap-2">
-                    <input
-                      type="checkbox"
-                      checked={operatingOnly}
-                      onChange={(e) => setOperatingOnly(e.target.checked)}
-                    />
-                    Prefer operating flight identity
-                  </label>
-                </div>
-                <div className="mt-1 text-[11px] text-zinc-500 dark:text-zinc-400">
-                  Your backend currently avoids codeshares and prefers operating
-                  ident.
-                </div>
-              </div>
-
-              <div className="md:col-span-2">
-                <label className="block text-xs font-medium text-zinc-600 dark:text-zinc-400">
-                  Dedupe Mode
-                </label>
-                <select
-                  value={dedupeMode}
-                  onChange={(e) =>
-                    setDedupeMode(
-                      e.target.value as "operating" | "marketing" | "none",
-                    )
-                  }
-                  className="mt-2 h-10 w-full rounded-xl border border-zinc-200 bg-white px-3 text-sm text-zinc-900 outline-none focus:border-zinc-400 dark:border-zinc-800 dark:bg-zinc-950 dark:text-zinc-50"
-                >
-                  <option value="operating">Operating (recommended)</option>
-                  <option value="marketing">Marketing (codeshare-heavy)</option>
-                  <option value="none">None</option>
-                </select>
-              </div>
-
-              <div className="md:col-span-2">
-                <label className="block text-xs font-medium text-zinc-600 dark:text-zinc-400">
-                  Sort
-                </label>
-                <div className="mt-2 grid grid-cols-2 gap-2">
-                  <select
-                    value={sortBy}
-                    onChange={(e) =>
-                      setSortBy(e.target.value as "schedDep" | "schedArr")
-                    }
-                    className="h-10 w-full rounded-xl border border-zinc-200 bg-white px-3 text-sm text-zinc-900 outline-none focus:border-zinc-400 dark:border-zinc-800 dark:bg-zinc-950 dark:text-zinc-50"
-                  >
-                    <option value="schedDep">Sched Dep</option>
-                    <option value="schedArr">Sched Arr</option>
-                  </select>
-                  <select
-                    value={sortOrder}
-                    onChange={(e) =>
-                      setSortOrder(e.target.value as "asc" | "desc")
-                    }
-                    className="h-10 w-full rounded-xl border border-zinc-200 bg-white px-3 text-sm text-zinc-900 outline-none focus:border-zinc-400 dark:border-zinc-800 dark:bg-zinc-950 dark:text-zinc-50"
-                  >
-                    <option value="asc">Asc</option>
-                    <option value="desc">Desc</option>
-                  </select>
-                </div>
-              </div>
-            </div>
-
-            <div className="mt-4 grid grid-cols-1 gap-4 md:grid-cols-6">
-              <div className="md:col-span-2">
-                <label className="block text-xs font-medium text-zinc-600 dark:text-zinc-400">
-                  Limit
-                </label>
+                <label className={labelClass}>Origins</label>
                 <input
-                  type="number"
-                  min={1}
-                  max={200}
-                  value={limitText}
-                  onChange={(e) => setLimitText(e.target.value)}
-                  onBlur={() =>
-                    setLimitText(String(clampInt(Number(limitText), 1, 200)))
-                  }
-                  className="mt-2 w-full rounded-xl border border-zinc-200 bg-white px-3 py-2 text-sm text-zinc-900 outline-none focus:border-zinc-400 dark:border-zinc-800 dark:bg-zinc-950 dark:text-zinc-50"
+                  value={originsCsv}
+                  onChange={(e) => setOriginsCsv(e.target.value)}
+                  placeholder="DEN, SFO"
+                  className={inputClass}
+                />
+                <div className={helpClass}>Comma-separated IATA codes.</div>
+              </div>
+
+              <div className="md:col-span-2">
+                <label className={labelClass}>Destinations</label>
+                <input
+                  value={destinationsCsv}
+                  onChange={(e) => setDestinationsCsv(e.target.value)}
+                  placeholder="JFK, LAX"
+                  className={inputClass}
+                />
+                <div className={helpClass}>Comma-separated IATA codes.</div>
+              </div>
+
+              <div className="md:col-span-2">
+                <label className={labelClass}>Carriers</label>
+                <input
+                  value={carriersCsv}
+                  onChange={(e) => setCarriersCsv(e.target.value)}
+                  placeholder="UA, DL, AA"
+                  className={inputClass}
+                />
+                <div className={helpClass}>Leave blank for all.</div>
+              </div>
+            </div>
+
+            <div className="mt-5 grid grid-cols-1 gap-4 md:grid-cols-6">
+              <div className="md:col-span-2">
+                <label className={labelClass}>Date Start</label>
+                <input
+                  type="date"
+                  value={dateStart}
+                  onChange={(e) => setDateStart(e.target.value)}
+                  className={inputClass}
                 />
               </div>
 
-              <div className="md:col-span-4">
-                <div className="flex items-center justify-between">
-                  <label className="text-xs font-medium text-zinc-600 dark:text-zinc-400">
-                    Enrichment (live status/delays when ID exists)
-                  </label>
-                  <label className="flex items-center gap-2 text-xs text-zinc-500 dark:text-zinc-400">
+              <div className="md:col-span-2">
+                <label className={labelClass}>Date End</label>
+                <input
+                  type="date"
+                  value={dateEnd}
+                  onChange={(e) => setDateEnd(e.target.value)}
+                  className={inputClass}
+                />
+              </div>
+
+              <div className="md:col-span-2">
+                <label className={labelClass}>Horizon</label>
+                <div className="mt-1 flex flex-wrap gap-2">
+                  <button
+                    type="button"
+                    onClick={() => setHorizon(2)}
+                    className={`h-10 rounded-xl px-3 text-xs font-semibold transition ${chipOff}`}
+                  >
+                    2d
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => setHorizon(7)}
+                    className={`h-10 rounded-xl px-3 text-xs font-semibold transition ${chipOff}`}
+                  >
+                    7d
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => setHorizon(30)}
+                    className={`h-10 rounded-xl px-3 text-xs font-semibold transition ${chipOff}`}
+                  >
+                    30d
+                  </button>
+                </div>
+              </div>
+            </div>
+
+            <details className="mt-5 rounded-2xl border border-zinc-200 bg-zinc-50 p-4 dark:border-zinc-800 dark:bg-black">
+              <summary className="cursor-pointer select-none text-sm font-semibold text-zinc-950 dark:text-zinc-50">
+                Advanced Filters
+              </summary>
+
+              <div className="mt-4 grid grid-cols-1 gap-4 md:grid-cols-6">
+                <div className="md:col-span-3">
+                  <div className="flex items-center justify-between">
+                    <label className={labelClass}>
+                      Departure Window ({displayTimeZone})
+                    </label>
+                    <label className="flex items-center gap-2 text-xs font-medium text-zinc-700 dark:text-zinc-300">
+                      <input
+                        type="checkbox"
+                        checked={departWindowEnabled}
+                        onChange={(e) =>
+                          setDepartWindowEnabled(e.target.checked)
+                        }
+                      />
+                      Enable
+                    </label>
+                  </div>
+
+                  <div className="mt-2 grid grid-cols-2 gap-2">
                     <input
-                      type="checkbox"
-                      checked={enrichEnabled}
-                      onChange={(e) => setEnrichEnabled(e.target.checked)}
+                      value={departStartHHMM}
+                      onChange={(e) => setDepartStartHHMM(e.target.value)}
+                      disabled={!departWindowEnabled}
+                      placeholder="HH:MM"
+                      className={`${inputClass} mt-0 disabled:opacity-60`}
                     />
-                    Enable
-                  </label>
+                    <input
+                      value={departEndHHMM}
+                      onChange={(e) => setDepartEndHHMM(e.target.value)}
+                      disabled={!departWindowEnabled}
+                      placeholder="HH:MM"
+                      className={`${inputClass} mt-0 disabled:opacity-60`}
+                    />
+                  </div>
+
+                  <div className={helpClass}>HH:MM in display timezone.</div>
                 </div>
 
-                <div className="mt-2 grid grid-cols-2 gap-2">
-                  <input
-                    type="number"
-                    min={1}
-                    max={200}
-                    value={enrichMaxText}
-                    onChange={(e) => setEnrichMaxText(e.target.value)}
-                    onBlur={() =>
-                      setEnrichMaxText(
-                        String(clampInt(Number(enrichMaxText), 1, 200)),
-                      )
-                    }
-                    disabled={!enrichEnabled}
-                    className="w-full rounded-xl border border-zinc-200 bg-white px-3 py-2 text-sm text-zinc-900 outline-none focus:border-zinc-400 disabled:opacity-60 dark:border-zinc-800 dark:bg-zinc-950 dark:text-zinc-50"
-                  />
-
-                  <div className="flex items-center text-[11px] text-zinc-500 dark:text-zinc-400">
-                    Max rows to enrich (cost control)
+                <div className="md:col-span-3">
+                  <label className={labelClass}>Days of Week</label>
+                  <div className="mt-2 flex flex-wrap gap-2">
+                    {DOW.map((d) => {
+                      const on = daysOfWeek.includes(d.value);
+                      return (
+                        <button
+                          key={d.value}
+                          type="button"
+                          onClick={() => toggleDow(d.value)}
+                          className={`h-9 rounded-xl px-3 text-xs font-semibold transition ${
+                            on ? chipOn : chipOff
+                          }`}
+                        >
+                          {d.label}
+                        </button>
+                      );
+                    })}
+                  </div>
+                  <div className={helpClass}>
+                    Interpreted in display timezone.
                   </div>
                 </div>
               </div>
-            </div>
-          </details>
-        </>
-      ) : (
-        <>
-          <div className="mt-5 grid grid-cols-1 gap-4 md:grid-cols-2">
-            <div>
-              <label className="block text-xs font-medium text-zinc-600 dark:text-zinc-400">
-                fa_flight_id list (one per line)
-              </label>
-              <textarea
-                value={faFlightIdsText}
-                onChange={(e) => setFaFlightIdsText(e.target.value)}
-                placeholder="FA12345-...\nFA67890-..."
-                rows={8}
-                className="mt-1 w-full rounded-2xl border border-zinc-200 bg-white px-3 py-2 text-sm text-zinc-900 outline-none focus:border-zinc-400 dark:border-zinc-800 dark:bg-zinc-950 dark:text-zinc-50"
-              />
-              <div className="mt-1 text-[11px] text-zinc-500 dark:text-zinc-400">
-                Works best near-term (when IDs exist).
-              </div>
-            </div>
 
-            <div>
-              <label className="block text-xs font-medium text-zinc-600 dark:text-zinc-400">
-                scheduleKey list (one per line)
-              </label>
-              <textarea
-                value={scheduleKeysText}
-                onChange={(e) => setScheduleKeysText(e.target.value)}
-                placeholder="SCHED|UA|123|DEN|JFK|2026-03-01T09:35|America/Denver"
-                rows={8}
-                className="mt-1 w-full rounded-2xl border border-zinc-200 bg-white px-3 py-2 text-sm text-zinc-900 outline-none focus:border-zinc-400 dark:border-zinc-800 dark:bg-zinc-950 dark:text-zinc-50"
-              />
-              <div className="mt-1 text-[11px] text-zinc-500 dark:text-zinc-400">
-                Deterministic keys for 2–30 days out (you define the format).
-              </div>
-            </div>
-          </div>
+              <div className="mt-4 grid grid-cols-1 gap-4 md:grid-cols-6">
+                <div className="md:col-span-2">
+                  <label className={labelClass}>Identity</label>
+                  <div className="mt-2 flex flex-col gap-2 text-xs font-medium text-zinc-700 dark:text-zinc-300">
+                    <label className="flex items-center gap-2">
+                      <input
+                        type="checkbox"
+                        checked={includeRegional}
+                        onChange={(e) => setIncludeRegional(e.target.checked)}
+                      />
+                      Include regional
+                    </label>
+                    <label className="flex items-center gap-2">
+                      <input
+                        type="checkbox"
+                        checked={includeCodeshares}
+                        onChange={(e) => setIncludeCodeshares(e.target.checked)}
+                      />
+                      Include codeshares
+                    </label>
+                    <label className="flex items-center gap-2">
+                      <input
+                        type="checkbox"
+                        checked={operatingOnly}
+                        onChange={(e) => setOperatingOnly(e.target.checked)}
+                      />
+                      Prefer operating identity
+                    </label>
+                  </div>
+                </div>
 
-          <div className="mt-4 rounded-2xl border border-zinc-200 p-4 dark:border-zinc-800">
-            <div className="flex items-center justify-between">
-              <label className="text-xs font-medium text-zinc-600 dark:text-zinc-400">
-                Enrichment (optional)
-              </label>
-              <label className="flex items-center gap-2 text-xs text-zinc-500 dark:text-zinc-400">
-                <input
-                  type="checkbox"
-                  checked={enrichEnabled}
-                  onChange={(e) => setEnrichEnabled(e.target.checked)}
+                <div className="md:col-span-2">
+                  <label className={labelClass}>Dedupe Mode</label>
+                  <select
+                    value={dedupeMode}
+                    onChange={(e) =>
+                      setDedupeMode(
+                        e.target.value as "operating" | "marketing" | "none",
+                      )
+                    }
+                    className="mt-1 h-10 w-full rounded-xl border border-zinc-200 bg-white px-3 text-sm text-zinc-900 outline-none focus:border-zinc-400 focus:ring-2 focus:ring-zinc-200 dark:border-zinc-800 dark:bg-zinc-950 dark:text-zinc-50 dark:focus:border-zinc-600 dark:focus:ring-zinc-900"
+                  >
+                    <option value="operating">Operating</option>
+                    <option value="marketing">Marketing</option>
+                    <option value="none">None</option>
+                  </select>
+                </div>
+
+                <div className="md:col-span-2">
+                  <label className={labelClass}>Sort</label>
+                  <div className="mt-1 grid grid-cols-2 gap-2">
+                    <select
+                      value={sortBy}
+                      onChange={(e) =>
+                        setSortBy(e.target.value as "schedDep" | "schedArr")
+                      }
+                      className="h-10 w-full rounded-xl border border-zinc-200 bg-white px-3 text-sm text-zinc-900 outline-none focus:border-zinc-400 focus:ring-2 focus:ring-zinc-200 dark:border-zinc-800 dark:bg-zinc-950 dark:text-zinc-50 dark:focus:border-zinc-600 dark:focus:ring-zinc-900"
+                    >
+                      <option value="schedDep">Scheduled Depart</option>
+                      <option value="schedArr">Scheduled Arrive</option>
+                    </select>
+                    <select
+                      value={sortOrder}
+                      onChange={(e) =>
+                        setSortOrder(e.target.value as "asc" | "desc")
+                      }
+                      className="h-10 w-full rounded-xl border border-zinc-200 bg-white px-3 text-sm text-zinc-900 outline-none focus:border-zinc-400 focus:ring-2 focus:ring-zinc-200 dark:border-zinc-800 dark:bg-zinc-950 dark:text-zinc-50 dark:focus:border-zinc-600 dark:focus:ring-zinc-900"
+                    >
+                      <option value="asc">Asc</option>
+                      <option value="desc">Desc</option>
+                    </select>
+                  </div>
+                </div>
+              </div>
+            </details>
+          </>
+        ) : (
+          <>
+            <div className="grid grid-cols-1 gap-4 md:grid-cols-2">
+              <div>
+                <label className={labelClass}>fa_flight_id list</label>
+                <textarea
+                  value={faFlightIdsText}
+                  onChange={(e) => setFaFlightIdsText(e.target.value)}
+                  placeholder="FA12345-...\nFA67890-..."
+                  rows={8}
+                  className={`${inputClass} resize-none rounded-2xl`}
                 />
-                Enable
-              </label>
-            </div>
+                <div className={helpClass}>
+                  Best near-term (when IDs exist).
+                </div>
+              </div>
 
-            <div className="mt-2 grid grid-cols-2 gap-2">
-              <input
-                type="number"
-                min={1}
-                max={200}
-                value={enrichMaxText}
-                onChange={(e) => setEnrichMaxText(e.target.value)}
-                onBlur={() =>
-                  setEnrichMaxText(
-                    String(clampInt(Number(enrichMaxText), 1, 200)),
-                  )
-                }
-                disabled={!enrichEnabled}
-                className="w-full rounded-xl border border-zinc-200 bg-white px-3 py-2 text-sm text-zinc-900 outline-none focus:border-zinc-400 disabled:opacity-60 dark:border-zinc-800 dark:bg-zinc-950 dark:text-zinc-50"
-              />
-
-              <div className="flex items-center text-[11px] text-zinc-500 dark:text-zinc-400">
-                Max rows to enrich
+              <div>
+                <label className={labelClass}>scheduleKey list</label>
+                <textarea
+                  value={scheduleKeysText}
+                  onChange={(e) => setScheduleKeysText(e.target.value)}
+                  placeholder="SCHED|UA|123|DEN|JFK|2026-03-01T09:35|America/Denver"
+                  rows={8}
+                  className={`${inputClass} resize-none rounded-2xl`}
+                />
+                <div className={helpClass}>
+                  Deterministic keys (format defined by you).
+                </div>
               </div>
             </div>
+          </>
+        )}
+
+        <div className="mt-5 flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
+          <button
+            type="button"
+            onClick={submit}
+            disabled={isLoading}
+            className="inline-flex h-11 items-center justify-center rounded-full bg-zinc-900 px-5 text-sm font-semibold text-white shadow-sm transition hover:bg-zinc-800 disabled:opacity-60 dark:bg-zinc-50 dark:text-zinc-900 dark:hover:bg-white"
+          >
+            {isLoading ? "Searching…" : "Search"}
+          </button>
+
+          <div className="text-xs text-zinc-500 dark:text-zinc-400">
+            Mode: <span className="font-mono">{mode}</span>
           </div>
-        </>
-      )}
-
-      <div className="mt-5 flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
-        <button
-          type="button"
-          onClick={submit}
-          disabled={isLoading}
-          className="inline-flex h-11 items-center justify-center rounded-full bg-zinc-900 px-5 text-sm font-medium text-white transition hover:bg-zinc-800 disabled:opacity-60 dark:bg-zinc-50 dark:text-zinc-900 dark:hover:bg-white"
-        >
-          {isLoading ? "Searching…" : "Search"}
-        </button>
-
-        <div className="text-xs text-zinc-500 dark:text-zinc-400">
-          Mode: <span className="font-mono">{mode}</span>
         </div>
       </div>
-    </div>
+    </section>
   );
 }

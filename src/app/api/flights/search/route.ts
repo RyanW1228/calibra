@@ -249,7 +249,7 @@ export async function POST(req: Request) {
     const aeroStart = `${dateStart}T00:00:00Z`;
     const aeroEnd = `${dateEnd}T00:00:00Z`;
 
-    const limit = clampInt(body.limit, 1, 200, 25);
+    const limit = Math.max(1, Math.min(1000, Number(body.limit ?? 500)));
 
     const departStartHour =
       body.departStartHour === null || body.departStartHour === undefined

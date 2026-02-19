@@ -179,7 +179,7 @@ export default function Home() {
         dateStart,
         dateEnd,
         airlines: airlines && airlines.length ? airlines.map(normalize) : null,
-        limit: Math.max(1, Math.min(200, payloadV1.limit)),
+        limit: Math.max(1, Math.min(1000, payloadV1.limit ?? 500)),
       };
 
       setLastSearchPayload(payload);
@@ -292,27 +292,13 @@ export default function Home() {
         <div className="rounded-2xl bg-white p-8 shadow-sm dark:bg-zinc-950">
           <div className="flex items-start justify-between gap-6">
             <div className="flex flex-col gap-2">
-              <div className="flex items-center gap-3">
-                <Image
-                  className="dark:invert"
-                  src="/next.svg"
-                  alt="Next.js logo"
-                  width={72}
-                  height={16}
-                  priority
-                />
-                <span className="text-xs font-medium text-zinc-500 dark:text-zinc-400">
-                  Calibra
-                </span>
-              </div>
-
               <h1 className="text-2xl font-semibold tracking-tight text-zinc-950 dark:text-zinc-50">
-                Flight Filter → Batch Builder
+                Batch Builder
               </h1>
 
               <p className="text-sm leading-6 text-zinc-600 dark:text-zinc-400">
-                Search flights and generate a normalized batch for downstream
-                processing.
+                Filter flights, review the selection, then create a batch for
+                funding and monitoring.
               </p>
             </div>
 
