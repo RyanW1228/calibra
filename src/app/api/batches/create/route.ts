@@ -1,3 +1,4 @@
+// calibra/src/app/api/batches/create/route.ts
 import { NextResponse } from "next/server";
 import { supabaseServer } from "@/lib/supabaseServer";
 
@@ -17,11 +18,20 @@ type CreateBatchRequest = {
     scheduledDepartISO?: string;
     scheduledArriveISO?: string;
   }>;
+
+  funderAddress?: string;
 };
 
 function cleanKey(s: unknown) {
   if (typeof s !== "string") return "";
   return s.trim();
+}
+
+function cleanAddr(s: unknown) {
+  if (typeof s !== "string") return "";
+  const v = s.trim();
+  if (!/^0x[a-fA-F0-9]{40}$/.test(v)) return "";
+  return v.toLowerCase();
 }
 
 export async function POST(req: Request) {
@@ -36,7 +46,13 @@ export async function POST(req: Request) {
     );
   }
 
-  const { displayTimeZone, flights, search, includedScheduleKeys } = body;
+  const {
+    displayTimeZone,
+    flights,
+    search,
+    includedScheduleKeys,
+    funderAddress,
+  } = body;
 
   if (!displayTimeZone) {
     return NextResponse.json(
@@ -48,6 +64,14 @@ export async function POST(req: Request) {
   if (!search || typeof search !== "object") {
     return NextResponse.json(
       { ok: false, error: "Missing search payload" },
+      { status: 400 },
+    );
+  }
+
+  const funder = cleanAddr(funderAddress);
+  if (!funder) {
+    return NextResponse.json(
+      { ok: false, error: "Missing or invalid funderAddress" },
       { status: 400 },
     );
   }
@@ -90,6 +114,7 @@ export async function POST(req: Request) {
       status: "draft",
       search_payload: search,
       included_schedule_keys: included,
+      funder_address: funder,
     })
     .select("id")
     .single();

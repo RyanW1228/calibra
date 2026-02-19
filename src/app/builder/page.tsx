@@ -4,6 +4,7 @@
 import React, { useState } from "react";
 import { useRouter } from "next/navigation";
 import Image from "next/image";
+import { useAccount } from "wagmi";
 import BatchPortfolioTable, {
   type BatchRow,
 } from "./components/BatchPortfolioTable";
@@ -52,10 +53,8 @@ function toYyyyMmDd(v: unknown): string {
   if (typeof v !== "string") return "";
   const s = v.trim();
 
-  // already YYYY-MM-DD
   if (/^\d{4}-\d{2}-\d{2}$/.test(s)) return s;
 
-  // ISO string -> take date part
   const m = s.match(/^(\d{4}-\d{2}-\d{2})T/);
   if (m) return m[1];
 
@@ -106,6 +105,7 @@ async function postCreateBatch(payload: {
     scheduledDepartISO?: string;
     scheduledArriveISO?: string;
   }>;
+  funderAddress: string;
 }): Promise<
   | { ok: true; batchId: string }
   | { ok: false; error: string; details?: unknown }
@@ -133,6 +133,7 @@ async function postCreateBatch(payload: {
 
 export default function Home() {
   const router = useRouter();
+  const { address } = useAccount();
 
   const [displayTimeZone, setDisplayTimeZone] = useState("UTC");
 
@@ -168,7 +169,6 @@ export default function Home() {
         return;
       }
 
-      // carriers[] -> airlines
       const airlines = Array.isArray(payloadV1.carriers)
         ? payloadV1.carriers
         : null;
@@ -246,6 +246,11 @@ export default function Home() {
       return;
     }
 
+    if (!address) {
+      setError("Connect wallet to create a batch.");
+      return;
+    }
+
     setIsLoading(true);
     setError(null);
 
@@ -263,6 +268,7 @@ export default function Home() {
           scheduledDepartISO: r.scheduledDepartISO,
           scheduledArriveISO: r.scheduledArriveISO,
         })),
+        funderAddress: address,
       };
 
       const json = await postCreateBatch(payload);
