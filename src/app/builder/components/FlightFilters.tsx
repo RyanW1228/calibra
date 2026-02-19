@@ -221,7 +221,7 @@ export default function FlightFilters(props: Props) {
   function setHorizon(days: number) {
     const start = todayISO();
     setDateStart(start);
-    setDateEnd(addDaysISO(start, clampInt(days, 1, 30)));
+    setDateEnd(addDaysISO(start, clampInt(days, 1, 14)));
   }
 
   function buildSchedulePayload(): ScheduleSearchPayloadV1 | { error: string } {
@@ -452,7 +452,7 @@ export default function FlightFilters(props: Props) {
                     onClick={() => setHorizon(30)}
                     className={`h-10 rounded-xl px-3 text-xs font-semibold transition ${chipOff}`}
                   >
-                    30d
+                    14d
                   </button>
                 </div>
               </div>
@@ -614,9 +614,6 @@ export default function FlightFilters(props: Props) {
                   rows={8}
                   className={`${inputClass} resize-none rounded-2xl`}
                 />
-                <div className={helpClass}>
-                  Best near-term (when IDs exist).
-                </div>
               </div>
 
               <div>
@@ -628,9 +625,6 @@ export default function FlightFilters(props: Props) {
                   rows={8}
                   className={`${inputClass} resize-none rounded-2xl`}
                 />
-                <div className={helpClass}>
-                  Deterministic keys (format defined by you).
-                </div>
               </div>
             </div>
           </>
@@ -645,10 +639,6 @@ export default function FlightFilters(props: Props) {
           >
             {isLoading ? "Searching…" : "Search"}
           </button>
-
-          <div className="text-xs text-zinc-500 dark:text-zinc-400">
-            Mode: <span className="font-mono">{mode}</span>
-          </div>
         </div>
       </div>
     </section>
