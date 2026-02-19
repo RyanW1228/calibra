@@ -61,9 +61,7 @@ function outcomeLabelsFromThresholds(raw: OutcomeThreshold[]) {
       labels.push(
         `Actual arrival time occurs more than ${fmtMinutes(
           uniq[i - 1],
-        )} and no later than ${fmtMinutes(
-          uniq[i],
-        )} after the scheduled arrival time.`,
+        )} and no later than ${fmtMinutes(uniq[i])} after the scheduled arrival time.`,
       );
     }
 
@@ -81,58 +79,54 @@ function outcomeLabelsFromThresholds(raw: OutcomeThreshold[]) {
   return labels;
 }
 
-function toDatetimeLocalFromUnixSeconds(u: number, tz?: string) {
+function toDatetimeLocalFromUnixSeconds(u: number) {
   const d = new Date(u * 1000);
+  const local = new Date(d.getTime() - d.getTimezoneOffset() * 60 * 1000)
+    .toISOString()
+    .slice(0, 16);
+  return local;
+}
 
-  if (!tz) {
-    const local = new Date(d.getTime() - d.getTimezoneOffset() * 60 * 1000)
-      .toISOString()
-      .slice(0, 16);
-    return local;
-  }
+function datetimeLocalToUnixSeconds(value: string, timeZone?: string) {
+  const m = /^(\d{4})-(\d{2})-(\d{2})T(\d{2}):(\d{2})$/.exec(value);
+  if (!m) return NaN;
+
+  const year = Number(m[1]);
+  const month = Number(m[2]);
+  const day = Number(m[3]);
+  const hour = Number(m[4]);
+  const minute = Number(m[5]);
+
+  if (!Number.isFinite(year + month + day + hour + minute)) return NaN;
+
+  const utcGuessMs = Date.UTC(year, month - 1, day, hour, minute, 0);
+
+  if (!timeZone) return Math.floor(new Date(value).getTime() / 1000);
 
   const parts = new Intl.DateTimeFormat("en-US", {
-    timeZone: tz,
+    timeZone,
     year: "numeric",
     month: "2-digit",
     day: "2-digit",
     hour: "2-digit",
     minute: "2-digit",
+    second: "2-digit",
     hour12: false,
-  }).formatToParts(d);
+  }).formatToParts(new Date(utcGuessMs));
 
-  const get = (type: string) => parts.find((p) => p.type === type)?.value ?? "";
+  const get = (t: string) => parts.find((p) => p.type === t)?.value ?? "";
 
-  const year = get("year");
-  const month = get("month");
-  const day = get("day");
-  const hour = get("hour");
-  const minute = get("minute");
+  const asUTC = Date.UTC(
+    Number(get("year")),
+    Number(get("month")) - 1,
+    Number(get("day")),
+    Number(get("hour")),
+    Number(get("minute")),
+    Number(get("second")),
+  );
 
-  if (!year || !month || !day || !hour || !minute) {
-    const local = new Date(d.getTime() - d.getTimezoneOffset() * 60 * 1000)
-      .toISOString()
-      .slice(0, 16);
-    return local;
-  }
-
-  return `${year}-${month}-${day}T${hour}:${minute}`;
-}
-
-function formatClockNow(timeZone?: string) {
-  const d = new Date();
-  try {
-    return new Intl.DateTimeFormat(undefined, {
-      timeZone: timeZone || undefined,
-      month: "2-digit",
-      day: "2-digit",
-      hour: "2-digit",
-      minute: "2-digit",
-      second: "2-digit",
-    }).format(d);
-  } catch {
-    return d.toISOString();
-  }
+  const offsetMs = asUTC - utcGuessMs;
+  return Math.floor((utcGuessMs - offsetMs) / 1000);
 }
 
 export default function BatchParamsCard({
@@ -150,14 +144,15 @@ export default function BatchParamsCard({
   const disableManualEnd = endWhenAllLanded;
   const [startImmediately, setStartImmediately] = React.useState(false);
 
-  const userEditedStartRef = React.useRef(false);
-  const userEditedEndRef = React.useRef(false);
+  const windowStartUnix = useMemo(
+    () => datetimeLocalToUnixSeconds(windowStartLocal, timeZone),
+    [windowStartLocal, timeZone],
+  );
 
-  const rebaseDatetimeLocalToTimeZone = (value: string, tz: string) => {
-    const ms = new Date(value).getTime();
-    if (!Number.isFinite(ms)) return value;
-    return toDatetimeLocalFromUnixSeconds(Math.floor(ms / 1000), tz);
-  };
+  const windowEndUnix = useMemo(
+    () => datetimeLocalToUnixSeconds(windowEndLocal, timeZone),
+    [windowEndLocal, timeZone],
+  );
 
   const labels = useMemo(
     () => outcomeLabelsFromThresholds(thresholds),
@@ -207,40 +202,15 @@ export default function BatchParamsCard({
   };
 
   const startNow = () => {
-    userEditedStartRef.current = false;
     const nowU = Math.floor(Date.now() / 1000);
-    setWindowStartLocal(toDatetimeLocalFromUnixSeconds(nowU, timeZone));
+    setWindowStartLocal(toDatetimeLocalFromUnixSeconds(nowU));
   };
 
   useEffect(() => {
-    if (!timeZone) return;
-
-    if (windowStartLocal && !userEditedStartRef.current) {
-      const rebased = rebaseDatetimeLocalToTimeZone(windowStartLocal, timeZone);
-      if (rebased !== windowStartLocal) setWindowStartLocal(rebased);
-    }
-
-    if (windowEndLocal && !userEditedEndRef.current) {
-      const rebased = rebaseDatetimeLocalToTimeZone(windowEndLocal, timeZone);
-      if (rebased !== windowEndLocal) setWindowEndLocal(rebased);
-    }
-  }, [
-    timeZone,
-    windowStartLocal,
-    windowEndLocal,
-    setWindowStartLocal,
-    setWindowEndLocal,
-  ]);
-
-  const [nowText, setNowText] = React.useState(() => formatClockNow(timeZone));
-
-  useEffect(() => {
-    setNowText(formatClockNow(timeZone));
-    const id = setInterval(() => {
-      setNowText(formatClockNow(timeZone));
-    }, 1000);
-    return () => clearInterval(id);
-  }, [timeZone]);
+    if (windowStartLocal) return;
+    const nowU = Math.floor(Date.now() / 1000);
+    setWindowStartLocal(toDatetimeLocalFromUnixSeconds(nowU));
+  }, []);
 
   return (
     <div className="mt-8 rounded-2xl border border-zinc-200 p-5 dark:border-zinc-800">
@@ -258,9 +228,10 @@ export default function BatchParamsCard({
             ) : null}
           </div>
         </div>
-
         <div className="text-xs text-zinc-500 dark:text-zinc-400">
-          Current Time: {nowText}
+          Unix Preview: start{" "}
+          {Number.isFinite(windowStartUnix) ? windowStartUnix : "—"} · end{" "}
+          {Number.isFinite(windowEndUnix) ? windowEndUnix : "—"}
         </div>
 
         <div className="mt-3 grid gap-3 sm:grid-cols-2">
@@ -270,10 +241,7 @@ export default function BatchParamsCard({
             </div>
             <input
               value={windowStartLocal}
-              onChange={(e) => {
-                userEditedStartRef.current = true;
-                setWindowStartLocal(e.target.value);
-              }}
+              onChange={(e) => setWindowStartLocal(e.target.value)}
               type="datetime-local"
               disabled={startImmediately}
               className={[
@@ -304,10 +272,7 @@ export default function BatchParamsCard({
             </div>
             <input
               value={windowEndLocal}
-              onChange={(e) => {
-                userEditedEndRef.current = true;
-                setWindowEndLocal(e.target.value);
-              }}
+              onChange={(e) => setWindowEndLocal(e.target.value)}
               type="datetime-local"
               disabled={disableManualEnd}
               className={[

@@ -85,15 +85,82 @@ const CALIBRA_BATCHES_ABI = [
   },
 ] as const;
 
-function unixFromDatetimeLocal(s: string) {
-  const d = new Date(s);
-  const ms = d.getTime();
-  if (Number.isNaN(ms)) return null;
-  return Math.floor(ms / 1000);
+function unixFromDatetimeLocal(s: string, timeZone: string) {
+  const m = /^(\d{4})-(\d{2})-(\d{2})T(\d{2}):(\d{2})$/.exec(s);
+  if (!m) return null;
+
+  const year = Number(m[1]);
+  const month = Number(m[2]);
+  const day = Number(m[3]);
+  const hour = Number(m[4]);
+  const minute = Number(m[5]);
+
+  if (
+    !Number.isFinite(year) ||
+    !Number.isFinite(month) ||
+    !Number.isFinite(day) ||
+    !Number.isFinite(hour) ||
+    !Number.isFinite(minute)
+  ) {
+    return null;
+  }
+
+  const utcGuessMs = Date.UTC(year, month - 1, day, hour, minute, 0);
+
+  const parts = new Intl.DateTimeFormat("en-US", {
+    timeZone,
+    year: "numeric",
+    month: "2-digit",
+    day: "2-digit",
+    hour: "2-digit",
+    minute: "2-digit",
+    second: "2-digit",
+    hour12: false,
+  }).formatToParts(new Date(utcGuessMs));
+
+  const get = (t: string) => parts.find((p) => p.type === t)?.value ?? "";
+
+  const asUTC = Date.UTC(
+    Number(get("year")),
+    Number(get("month")) - 1,
+    Number(get("day")),
+    Number(get("hour")),
+    Number(get("minute")),
+    Number(get("second")),
+  );
+
+  const offsetMs = asUTC - utcGuessMs;
+  return Math.floor((utcGuessMs - offsetMs) / 1000);
 }
 
 function seedLocalStorageKey(batchId: string) {
   return `calibra_seed_${batchId}`;
+}
+
+function datetimeLocalFromUnixSecondsInTimeZone(u: number, timeZone: string) {
+  const d = new Date(u * 1000);
+
+  const parts = new Intl.DateTimeFormat("en-US", {
+    timeZone,
+    year: "numeric",
+    month: "2-digit",
+    day: "2-digit",
+    hour: "2-digit",
+    minute: "2-digit",
+    hour12: false,
+  }).formatToParts(d);
+
+  const get = (t: string) => parts.find((p) => p.type === t)?.value ?? "";
+
+  const year = get("year");
+  const month = get("month");
+  const day = get("day");
+  const hour = get("hour");
+  const minute = get("minute");
+
+  if (!year || !month || !day || !hour || !minute) return "";
+
+  return `${year}-${month}-${day}T${hour}:${minute}`;
 }
 
 export default function FundBatchPage() {
@@ -194,7 +261,7 @@ export default function FundBatchPage() {
     if (!endWhenAllLanded) return;
     if (!windowStartLocal.trim()) return;
 
-    const wsU = unixFromDatetimeLocal(windowStartLocal.trim());
+    const wsU = unixFromDatetimeLocal(windowStartLocal.trim(), tz);
     if (wsU === null) return;
 
     const arriveTimes = flights
@@ -211,12 +278,8 @@ export default function FundBatchPage() {
     const bufferSeconds = 6 * 60 * 60;
     const autoEndU = Math.max(wsU + 60, latestArriveU + bufferSeconds);
 
-    const d = new Date(autoEndU * 1000);
-    const local = new Date(d.getTime() - d.getTimezoneOffset() * 60 * 1000)
-      .toISOString()
-      .slice(0, 16);
-
-    setWindowEndLocal(local);
+    const local = datetimeLocalFromUnixSecondsInTimeZone(autoEndU, tz);
+    if (local) setWindowEndLocal(local);
   }, [endWhenAllLanded, windowStartLocal, flights]);
 
   const canContinue = useMemo(() => {
@@ -228,13 +291,13 @@ export default function FundBatchPage() {
     const ws = windowStartLocal.trim();
     if (!ws) return false;
 
-    const wsU = unixFromDatetimeLocal(ws);
+    const wsU = unixFromDatetimeLocal(ws, tz);
     if (wsU === null) return false;
 
     const we = windowEndLocal.trim();
     if (!we) return false;
 
-    const weU = unixFromDatetimeLocal(we);
+    const weU = unixFromDatetimeLocal(we, tz);
     if (weU === null) return false;
     if (wsU >= weU) return false;
 
@@ -251,7 +314,7 @@ export default function FundBatchPage() {
     if (uniq.length > maxThresholds) return false;
 
     return true;
-  }, [amountUsdc, windowStartLocal, windowEndLocal, thresholds]);
+  }, [amountUsdc, windowStartLocal, windowEndLocal, thresholds, tz]);
 
   async function ensureWalletReady() {
     if (!isConnected) {
@@ -284,8 +347,8 @@ export default function FundBatchPage() {
       return;
     }
 
-    const wsU = unixFromDatetimeLocal(windowStartLocal.trim());
-    const weU = unixFromDatetimeLocal(windowEndLocal.trim());
+    const wsU = unixFromDatetimeLocal(windowStartLocal.trim(), tz);
+    const weU = unixFromDatetimeLocal(windowEndLocal.trim(), tz);
     if (wsU === null || weU === null) {
       setTxError("Invalid time inputs");
       return;
