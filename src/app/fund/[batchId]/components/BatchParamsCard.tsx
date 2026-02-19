@@ -61,7 +61,9 @@ function outcomeLabelsFromThresholds(raw: OutcomeThreshold[]) {
       labels.push(
         `Actual arrival time occurs more than ${fmtMinutes(
           uniq[i - 1],
-        )} and no later than ${fmtMinutes(uniq[i])} after the scheduled arrival time.`,
+        )} and no later than ${fmtMinutes(
+          uniq[i],
+        )} after the scheduled arrival time.`,
       );
     }
 
@@ -79,12 +81,58 @@ function outcomeLabelsFromThresholds(raw: OutcomeThreshold[]) {
   return labels;
 }
 
-function toDatetimeLocalFromUnixSeconds(u: number) {
+function toDatetimeLocalFromUnixSeconds(u: number, tz?: string) {
   const d = new Date(u * 1000);
-  const local = new Date(d.getTime() - d.getTimezoneOffset() * 60 * 1000)
-    .toISOString()
-    .slice(0, 16);
-  return local;
+
+  if (!tz) {
+    const local = new Date(d.getTime() - d.getTimezoneOffset() * 60 * 1000)
+      .toISOString()
+      .slice(0, 16);
+    return local;
+  }
+
+  const parts = new Intl.DateTimeFormat("en-US", {
+    timeZone: tz,
+    year: "numeric",
+    month: "2-digit",
+    day: "2-digit",
+    hour: "2-digit",
+    minute: "2-digit",
+    hour12: false,
+  }).formatToParts(d);
+
+  const get = (type: string) => parts.find((p) => p.type === type)?.value ?? "";
+
+  const year = get("year");
+  const month = get("month");
+  const day = get("day");
+  const hour = get("hour");
+  const minute = get("minute");
+
+  if (!year || !month || !day || !hour || !minute) {
+    const local = new Date(d.getTime() - d.getTimezoneOffset() * 60 * 1000)
+      .toISOString()
+      .slice(0, 16);
+    return local;
+  }
+
+  return `${year}-${month}-${day}T${hour}:${minute}`;
+}
+
+function formatClockNow(timeZone?: string) {
+  const d = new Date();
+  try {
+    return new Intl.DateTimeFormat(undefined, {
+      timeZone: timeZone || undefined,
+      month: "2-digit",
+      day: "2-digit",
+      hour: "2-digit",
+      minute: "2-digit",
+      second: "2-digit",
+    }).format(d);
+  } catch {
+    return d.toISOString();
+  }
 }
 
 export default function BatchParamsCard({
@@ -151,14 +199,24 @@ export default function BatchParamsCard({
 
   const startNow = () => {
     const nowU = Math.floor(Date.now() / 1000);
-    setWindowStartLocal(toDatetimeLocalFromUnixSeconds(nowU));
+    setWindowStartLocal(toDatetimeLocalFromUnixSeconds(nowU, timeZone));
   };
 
   useEffect(() => {
     if (windowStartLocal) return;
     const nowU = Math.floor(Date.now() / 1000);
-    setWindowStartLocal(toDatetimeLocalFromUnixSeconds(nowU));
-  }, []);
+    setWindowStartLocal(toDatetimeLocalFromUnixSeconds(nowU, timeZone));
+  }, [windowStartLocal, setWindowStartLocal, timeZone]);
+
+  const [nowText, setNowText] = React.useState(() => formatClockNow(timeZone));
+
+  useEffect(() => {
+    setNowText(formatClockNow(timeZone));
+    const id = setInterval(() => {
+      setNowText(formatClockNow(timeZone));
+    }, 1000);
+    return () => clearInterval(id);
+  }, [timeZone]);
 
   return (
     <div className="mt-8 rounded-2xl border border-zinc-200 p-5 dark:border-zinc-800">
@@ -175,6 +233,10 @@ export default function BatchParamsCard({
               </span>
             ) : null}
           </div>
+        </div>
+
+        <div className="text-xs text-zinc-500 dark:text-zinc-400">
+          Current Time: {nowText}
         </div>
 
         <div className="mt-3 grid gap-3 sm:grid-cols-2">
