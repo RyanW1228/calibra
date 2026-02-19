@@ -51,25 +51,20 @@ function outcomeLabelsFromThresholds(raw: OutcomeThreshold[]) {
       "Actual arrival time occurs at or before the scheduled arrival time.",
     );
   } else {
-    // First bucket
     labels.push(
       `Actual arrival time occurs no later than ${fmtMinutes(
         uniq[0],
       )} after the scheduled arrival time.`,
     );
 
-    // Intermediate buckets
     for (let i = 1; i < uniq.length; i++) {
       labels.push(
         `Actual arrival time occurs more than ${fmtMinutes(
           uniq[i - 1],
-        )} and no later than ${fmtMinutes(
-          uniq[i],
-        )} after the scheduled arrival time.`,
+        )} and no later than ${fmtMinutes(uniq[i])} after the scheduled arrival time.`,
       );
     }
 
-    // Final bucket
     labels.push(
       `Actual arrival time occurs more than ${fmtMinutes(
         uniq[uniq.length - 1],
@@ -77,7 +72,6 @@ function outcomeLabelsFromThresholds(raw: OutcomeThreshold[]) {
     );
   }
 
-  // Non-arrival outcome
   labels.push(
     "The flight does not arrive (diversion, cancellation, or missing arrival record).",
   );
@@ -113,23 +107,46 @@ export default function BatchParamsCard({
     [thresholds],
   );
 
+  const [thresholdDrafts, setThresholdDrafts] = React.useState<
+    Record<string, string>
+  >({});
+
+  useEffect(() => {
+    setThresholdDrafts((prev) => {
+      const next: Record<string, string> = {};
+      for (const t of thresholds) {
+        next[t.id] = prev[t.id] ?? String(t.minutes);
+      }
+      return next;
+    });
+  }, [thresholds]);
+
   const addThreshold = () => {
     if (thresholds.length >= maxThresholds) return;
     const id = `t_${Math.random().toString(36).slice(2)}_${Date.now()}`;
     setThresholds([...thresholds, { id, minutes: 60 }]);
+    setThresholdDrafts((prev) => ({ ...prev, [id]: "60" }));
   };
 
   const removeThreshold = (id: string) => {
     setThresholds(thresholds.filter((t) => t.id !== id));
+    setThresholdDrafts((prev) => {
+      const next = { ...prev };
+      delete next[id];
+      return next;
+    });
   };
 
-  const setThresholdMinutes = (id: string, minutes: number) => {
-    const clean = Number.isFinite(minutes)
-      ? Math.max(1, Math.floor(minutes))
-      : 1;
+  const commitThresholdMinutes = (id: string, raw: string) => {
+    const trimmed = raw.trim();
+    const n = trimmed === "" ? NaN : Number(trimmed);
+    const clean = Number.isFinite(n) ? Math.max(1, Math.floor(n)) : 1;
+
     setThresholds(
       thresholds.map((t) => (t.id === id ? { ...t, minutes: clean } : t)),
     );
+
+    setThresholdDrafts((prev) => ({ ...prev, [id]: String(clean) }));
   };
 
   const startNow = () => {
@@ -239,12 +256,24 @@ export default function BatchParamsCard({
                   </div>
 
                   <input
-                    value={String(t.minutes)}
-                    onChange={(e) =>
-                      setThresholdMinutes(t.id, Number(e.target.value))
+                    value={thresholdDrafts[t.id] ?? String(t.minutes)}
+                    onChange={(e) => {
+                      const raw = e.target.value;
+                      if (/^\d*$/.test(raw)) {
+                        setThresholdDrafts((prev) => ({
+                          ...prev,
+                          [t.id]: raw,
+                        }));
+                      }
+                    }}
+                    onBlur={() =>
+                      commitThresholdMinutes(
+                        t.id,
+                        thresholdDrafts[t.id] ?? String(t.minutes),
+                      )
                     }
-                    type="number"
-                    min={1}
+                    type="text"
+                    inputMode="numeric"
                     className="h-10 w-28 rounded-xl border border-zinc-200 bg-white px-3 text-sm text-zinc-900 outline-none focus:border-zinc-400 dark:border-zinc-800 dark:bg-zinc-950 dark:text-zinc-50 dark:focus:border-zinc-600"
                   />
 
