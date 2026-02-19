@@ -150,6 +150,15 @@ export default function BatchParamsCard({
   const disableManualEnd = endWhenAllLanded;
   const [startImmediately, setStartImmediately] = React.useState(false);
 
+  const userEditedStartRef = React.useRef(false);
+  const userEditedEndRef = React.useRef(false);
+
+  const rebaseDatetimeLocalToTimeZone = (value: string, tz: string) => {
+    const ms = new Date(value).getTime();
+    if (!Number.isFinite(ms)) return value;
+    return toDatetimeLocalFromUnixSeconds(Math.floor(ms / 1000), tz);
+  };
+
   const labels = useMemo(
     () => outcomeLabelsFromThresholds(thresholds),
     [thresholds],
@@ -198,15 +207,30 @@ export default function BatchParamsCard({
   };
 
   const startNow = () => {
+    userEditedStartRef.current = false;
     const nowU = Math.floor(Date.now() / 1000);
     setWindowStartLocal(toDatetimeLocalFromUnixSeconds(nowU, timeZone));
   };
 
   useEffect(() => {
-    if (windowStartLocal) return;
-    const nowU = Math.floor(Date.now() / 1000);
-    setWindowStartLocal(toDatetimeLocalFromUnixSeconds(nowU, timeZone));
-  }, [windowStartLocal, setWindowStartLocal, timeZone]);
+    if (!timeZone) return;
+
+    if (windowStartLocal && !userEditedStartRef.current) {
+      const rebased = rebaseDatetimeLocalToTimeZone(windowStartLocal, timeZone);
+      if (rebased !== windowStartLocal) setWindowStartLocal(rebased);
+    }
+
+    if (windowEndLocal && !userEditedEndRef.current) {
+      const rebased = rebaseDatetimeLocalToTimeZone(windowEndLocal, timeZone);
+      if (rebased !== windowEndLocal) setWindowEndLocal(rebased);
+    }
+  }, [
+    timeZone,
+    windowStartLocal,
+    windowEndLocal,
+    setWindowStartLocal,
+    setWindowEndLocal,
+  ]);
 
   const [nowText, setNowText] = React.useState(() => formatClockNow(timeZone));
 
@@ -246,7 +270,10 @@ export default function BatchParamsCard({
             </div>
             <input
               value={windowStartLocal}
-              onChange={(e) => setWindowStartLocal(e.target.value)}
+              onChange={(e) => {
+                userEditedStartRef.current = true;
+                setWindowStartLocal(e.target.value);
+              }}
               type="datetime-local"
               disabled={startImmediately}
               className={[
@@ -277,7 +304,10 @@ export default function BatchParamsCard({
             </div>
             <input
               value={windowEndLocal}
-              onChange={(e) => setWindowEndLocal(e.target.value)}
+              onChange={(e) => {
+                userEditedEndRef.current = true;
+                setWindowEndLocal(e.target.value);
+              }}
               type="datetime-local"
               disabled={disableManualEnd}
               className={[
