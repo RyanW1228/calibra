@@ -124,18 +124,11 @@ export default function HomePage() {
               </h1>
 
               <p className="text-sm text-zinc-600 dark:text-zinc-400">
-                Create and fund flight prediction batches.
+                Manage flight prediction batches.
               </p>
             </div>
 
             <div className="flex items-center gap-2">
-              <button
-                onClick={() => router.push("/submit")}
-                className="inline-flex h-9 items-center justify-center rounded-full border border-zinc-200 bg-white px-4 text-xs font-medium text-zinc-900 transition hover:bg-zinc-50 dark:border-zinc-800 dark:bg-zinc-950 dark:text-zinc-50 dark:hover:bg-black"
-              >
-                Model
-              </button>
-
               {isConnected ? (
                 <>
                   <div className="hidden flex-col items-end gap-1 sm:flex">
@@ -148,36 +141,21 @@ export default function HomePage() {
                         "Connected"
                       )}
                     </div>
-                    <div className="text-[11px] text-zinc-500 dark:text-zinc-400">
-                      Chain:{" "}
-                      <span className="font-mono">
-                        {typeof chainId === "number" ? chainId : "—"}
-                      </span>
-                    </div>
                   </div>
 
                   <button
-                    onClick={async () => {
-                      try {
-                        await ensureWalletReady();
-                      } catch (e: any) {
-                        setWalletError(
-                          e?.shortMessage ??
-                            e?.message ??
-                            "Failed to switch chain",
-                        );
-                      }
+                    onClick={() => {
+                      disconnect();
                     }}
                     className="inline-flex h-9 items-center justify-center rounded-full border border-zinc-200 bg-white px-4 text-xs font-medium text-zinc-900 transition hover:bg-zinc-50 dark:border-zinc-800 dark:bg-zinc-950 dark:text-zinc-50 dark:hover:bg-black"
                   >
-                    Switch to ADI
+                    Disconnect
                   </button>
-
                   <button
-                    onClick={() => disconnect()}
+                    onClick={() => router.push("/submit")}
                     className="inline-flex h-9 items-center justify-center rounded-full border border-zinc-200 bg-white px-4 text-xs font-medium text-zinc-900 transition hover:bg-zinc-50 dark:border-zinc-800 dark:bg-zinc-950 dark:text-zinc-50 dark:hover:bg-black"
                   >
-                    Disconnect
+                    Predict
                   </button>
                 </>
               ) : (
@@ -210,22 +188,34 @@ export default function HomePage() {
 
           {/* Create New Batch */}
           <div className="mt-8 flex flex-col gap-3">
-            <div className="text-sm font-medium text-zinc-900 dark:text-zinc-50">
-              Start a new batch
-            </div>
-
             <button
-              onClick={() => router.push("/builder")}
-              className="inline-flex h-10 items-center justify-center rounded-xl bg-zinc-900 px-5 text-sm font-medium text-white transition hover:bg-zinc-800 dark:bg-zinc-50 dark:text-zinc-900 dark:hover:bg-zinc-200"
+              type="button"
+              disabled={!isConnected}
+              onClick={() => {
+                if (!isConnected) return;
+                router.push("/builder");
+              }}
+              className={[
+                "inline-flex h-10 items-center justify-center rounded-xl bg-zinc-900 px-5 text-sm font-medium text-white transition",
+                isConnected
+                  ? "hover:bg-zinc-800 dark:bg-zinc-50 dark:text-zinc-900 dark:hover:bg-zinc-200"
+                  : "opacity-50 cursor-not-allowed pointer-events-none",
+              ].join(" ")}
             >
               Create New Batch
             </button>
+
+            {!isConnected && (
+              <div className="text-xs text-zinc-500 dark:text-zinc-400">
+                Connect wallet to create a batch.
+              </div>
+            )}
           </div>
 
-          {/* Open Existing Batch */}
+          {/* Open Batch */}
           <div className="mt-10 flex flex-col gap-3">
             <div className="text-sm font-medium text-zinc-900 dark:text-zinc-50">
-              Open existing batch
+              Open Batch
             </div>
 
             <div className="flex gap-2">
@@ -245,14 +235,10 @@ export default function HomePage() {
               </button>
             </div>
 
-            <div className="text-xs text-zinc-500 dark:text-zinc-400">
-              This will navigate to the funding page for the batch.
-            </div>
-
             {/* Active Batches */}
             <div className="mt-6 flex items-center justify-between">
               <div className="text-sm font-semibold text-zinc-900 dark:text-zinc-50">
-                Active batches
+                Active Batches
               </div>
 
               <button
