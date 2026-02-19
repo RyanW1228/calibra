@@ -324,7 +324,7 @@ export default function FlightFilters(props: Props) {
             </span>
           </div>
           <div className="mt-1 text-xs text-zinc-500 dark:text-zinc-400">
-            Current time: <span className="font-mono">{nowLabel}</span>
+            <span className="font-mono">{nowLabel}</span>
           </div>
         </div>
 

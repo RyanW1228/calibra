@@ -78,13 +78,18 @@ export default function BatchPortfolioTable({
     <div className="rounded-2xl border border-zinc-200 p-5 dark:border-zinc-800">
       <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
         <div>
-          <h2 className="text-sm font-semibold text-zinc-900 dark:text-zinc-50">
-            Batch / Portfolio
-          </h2>
+          <div className="flex flex-wrap items-center gap-2">
+            <h2 className="text-sm font-semibold text-zinc-900 dark:text-zinc-50">
+              Batch
+            </h2>
+
+            <span className="inline-flex items-center rounded-full border border-zinc-200 bg-zinc-50 px-2 py-0.5 text-[11px] font-medium text-zinc-700 dark:border-zinc-800 dark:bg-black dark:text-zinc-200">
+              {displayTimeZone}
+            </span>
+          </div>
+
           <div className="mt-1 text-xs text-zinc-500 dark:text-zinc-400">
             Included: {includedCount} / {rows.length}
-            <span className="mx-2 text-zinc-300 dark:text-zinc-700">•</span>
-            TZ: <span className="font-mono">{displayTimeZone}</span>
           </div>
         </div>
 
@@ -120,30 +125,31 @@ export default function BatchPortfolioTable({
         </div>
       ) : null}
 
-      <div className="mt-4 overflow-auto rounded-xl border border-zinc-200 dark:border-zinc-800">
-        <table className="min-w-[1700px] text-left text-sm">
+      <div className="mt-4 rounded-xl border border-zinc-200 dark:border-zinc-800">
+        <table className="w-full table-fixed text-left text-sm">
           <thead className="sticky top-0 z-10 bg-zinc-50 text-xs text-zinc-600 dark:bg-black dark:text-zinc-400">
             <tr>
-              <th className="w-10 px-3 py-2 font-medium whitespace-nowrap">
-                ✓
-              </th>
-              <th className="px-3 py-2 font-medium whitespace-nowrap">
+              <th className="w-10 px-3 py-2 font-medium whitespace-nowrap" />
+
+              <th className="w-20 px-3 py-2 font-medium whitespace-nowrap">
                 Airline
               </th>
-              <th className="px-3 py-2 font-medium whitespace-nowrap">
+              <th className="w-20 px-3 py-2 font-medium whitespace-nowrap">
                 Flight
               </th>
-              <th className="px-3 py-2 font-medium whitespace-nowrap">Route</th>
-
-              <th className="px-3 py-2 font-medium whitespace-nowrap">
-                Sched Dep
+              <th className="w-28 px-3 py-2 font-medium whitespace-nowrap">
+                Route
               </th>
 
-              <th className="px-3 py-2 font-medium whitespace-nowrap">
-                Sched Arr
+              <th className="w-32 px-3 py-2 font-medium whitespace-nowrap">
+                Scheduled Depart
               </th>
 
-              <th className="px-3 py-2 font-medium whitespace-nowrap">
+              <th className="w-32 px-3 py-2 font-medium whitespace-nowrap">
+                Scheduled Arrive
+              </th>
+
+              <th className="w-24 px-3 py-2 font-medium whitespace-nowrap">
                 Status
               </th>
             </tr>
