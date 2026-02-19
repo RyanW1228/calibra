@@ -19,19 +19,58 @@ type ActiveBatchRow = {
   display_time_zone: string | null;
   flight_count: number | null;
   status: string | null;
-  created_at: string | null;
+
+  prediction_window_start_unix: number | null;
+  prediction_window_end_unix: number | null;
 };
 
 type ListActiveBatchesResponse =
   | { ok: true; batches: ActiveBatchRow[] }
   | { ok: false; error: string; details?: unknown };
 
-function fmtDate(s?: string | null) {
-  if (!s) return "—";
-  const d = new Date(s);
-  const ms = d.getTime();
-  if (!Number.isFinite(ms)) return "—";
-  return d.toLocaleString();
+function fmtCountdown(seconds: number) {
+  const s = Math.max(0, Math.floor(seconds));
+  const days = Math.floor(s / 86400);
+  const hours = Math.floor((s % 86400) / 3600);
+  const mins = Math.floor((s % 3600) / 60);
+  const secs = s % 60;
+
+  if (days > 0) return `${days}d ${hours}h`;
+  if (hours > 0) return `${hours}h ${mins}m`;
+  if (mins > 0) return `${mins}m ${secs}s`;
+  return `${secs}s`;
+}
+
+function batchTimingText(
+  b: ActiveBatchRow,
+  nowMs: number,
+): { text: string; state: "starts" | "ends" | "ended" | "unknown" } {
+  const startMs =
+    typeof b.prediction_window_start_unix === "number" &&
+    b.prediction_window_start_unix
+      ? b.prediction_window_start_unix * 1000
+      : null;
+  const endMs =
+    typeof b.prediction_window_end_unix === "number" &&
+    b.prediction_window_end_unix
+      ? b.prediction_window_end_unix * 1000
+      : null;
+
+  if (startMs && nowMs < startMs) {
+    const secs = (startMs - nowMs) / 1000;
+    return { text: `Starts in ${fmtCountdown(secs)}`, state: "starts" };
+  }
+
+  if (endMs && nowMs < endMs) {
+    const secs = (endMs - nowMs) / 1000;
+    return { text: `Ends in ${fmtCountdown(secs)}`, state: "ends" };
+  }
+
+  if (endMs && nowMs >= endMs) {
+    return { text: "Ended", state: "ended" };
+  }
+
+  return { text: "—", state: "unknown" };
 }
 
 export default function HomePage() {
@@ -44,12 +83,13 @@ export default function HomePage() {
   const { switchChainAsync } = useSwitchChain();
 
   const [walletError, setWalletError] = useState<string | null>(null);
-
   const [batchId, setBatchId] = useState("");
 
   const [activeLoading, setActiveLoading] = useState(true);
   const [activeError, setActiveError] = useState<string | null>(null);
   const [activeBatches, setActiveBatches] = useState<ActiveBatchRow[]>([]);
+
+  const [nowMs, setNowMs] = useState(() => Date.now());
 
   const addr = useMemo(() => {
     if (!address) return null;
@@ -79,7 +119,7 @@ export default function HomePage() {
   function openBatchById(id: string) {
     const clean = id.trim();
     if (!clean) return;
-    router.push(`/batch/${encodeURIComponent(id)}`);
+    router.push(`/batch/${encodeURIComponent(clean)}`);
   }
 
   async function loadActiveBatches() {
@@ -122,6 +162,33 @@ export default function HomePage() {
   useEffect(() => {
     loadActiveBatches();
   }, [address]);
+
+  useEffect(() => {
+    const hasAnyTimers = activeBatches.some((b) => {
+      const start =
+        typeof b.prediction_window_start_unix === "number" &&
+        b.prediction_window_start_unix
+          ? b.prediction_window_start_unix * 1000
+          : null;
+      const end =
+        typeof b.prediction_window_end_unix === "number" &&
+        b.prediction_window_end_unix
+          ? b.prediction_window_end_unix * 1000
+          : null;
+
+      if (start && nowMs < start) return true;
+      if (end && nowMs < end) return true;
+      return false;
+    });
+
+    if (!hasAnyTimers) return;
+
+    const t = window.setInterval(() => {
+      setNowMs(Date.now());
+    }, 1000);
+
+    return () => window.clearInterval(t);
+  }, [activeBatches, nowMs]);
 
   return (
     <div className="flex min-h-screen items-center justify-center bg-zinc-50 font-sans dark:bg-black">
@@ -278,29 +345,32 @@ export default function HomePage() {
                 </div>
               ) : (
                 <div className="flex flex-col gap-2">
-                  {activeBatches.map((b) => (
-                    <div
-                      key={b.id}
-                      className="flex items-center justify-between rounded-lg border border-zinc-200 px-3 py-2 dark:border-zinc-800"
-                    >
-                      <div className="flex flex-col">
-                        <div className="text-sm font-medium text-zinc-900 dark:text-zinc-50">
-                          {b.id}
-                        </div>
-                        <div className="text-[11px] text-zinc-500 dark:text-zinc-400">
-                          {b.status ?? "—"} • {b.flight_count ?? 0} flights •{" "}
-                          {fmtDate(b.created_at)}
-                        </div>
-                      </div>
+                  {activeBatches.map((b) => {
+                    const timing = batchTimingText(b, nowMs);
 
-                      <button
-                        onClick={() => openBatchById(b.id)}
-                        className="inline-flex h-8 items-center justify-center rounded-lg bg-emerald-600 px-3 text-xs font-medium text-white transition hover:bg-emerald-500"
+                    return (
+                      <div
+                        key={b.id}
+                        className="flex items-center justify-between rounded-lg border border-zinc-200 px-3 py-2 dark:border-zinc-800"
                       >
-                        Open
-                      </button>
-                    </div>
-                  ))}
+                        <div className="flex flex-col">
+                          <div className="text-sm font-medium text-zinc-900 dark:text-zinc-50">
+                            {b.id}
+                          </div>
+                          <div className="text-[11px] text-zinc-500 dark:text-zinc-400">
+                            {timing.text} • {b.flight_count ?? 0} flights
+                          </div>
+                        </div>
+
+                        <button
+                          onClick={() => openBatchById(b.id)}
+                          className="inline-flex h-8 items-center justify-center rounded-lg bg-emerald-600 px-3 text-xs font-medium text-white transition hover:bg-emerald-500"
+                        >
+                          Open
+                        </button>
+                      </div>
+                    );
+                  })}
                 </div>
               )}
             </div>

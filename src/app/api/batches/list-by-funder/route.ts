@@ -8,6 +8,9 @@ type BatchRow = {
   flight_count: number | null;
   status: string | null;
   created_at: string | null;
+
+  prediction_window_start_unix: number | null;
+  prediction_window_end_unix: number | null;
 };
 
 type ListByFunderResponse =
@@ -51,7 +54,9 @@ export async function GET(req: Request) {
 
     const { data, error } = await sb
       .from("batches")
-      .select("id, display_time_zone, flight_count, status, created_at")
+      .select(
+        "id, display_time_zone, flight_count, status, created_at, prediction_window_start_unix, prediction_window_end_unix",
+      )
       .eq("funder_address", funderRaw.toLowerCase())
       .order("created_at", { ascending: false })
       .limit(limit);
