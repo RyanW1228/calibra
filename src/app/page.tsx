@@ -87,7 +87,17 @@ export default function HomePage() {
     setActiveError(null);
 
     try {
-      const res = await fetch("/api/batches/list-active?limit=25", {
+      if (!address) {
+        setActiveBatches([]);
+        setActiveError(null);
+        return;
+      }
+
+      const url = `/api/batches/list-by-funder?funder=${encodeURIComponent(
+        address,
+      )}&limit=25`;
+
+      const res = await fetch(url, {
         method: "GET",
         cache: "no-store",
       });
@@ -103,7 +113,7 @@ export default function HomePage() {
       setActiveBatches(Array.isArray(json.batches) ? json.batches : []);
     } catch (e: any) {
       setActiveBatches([]);
-      setActiveError(e?.message ?? "Failed to load active batches");
+      setActiveError(e?.message ?? "Failed to load your batches");
     } finally {
       setActiveLoading(false);
     }
@@ -111,7 +121,7 @@ export default function HomePage() {
 
   useEffect(() => {
     loadActiveBatches();
-  }, []);
+  }, [address]);
 
   return (
     <div className="flex min-h-screen items-center justify-center bg-zinc-50 font-sans dark:bg-black">
@@ -186,7 +196,6 @@ export default function HomePage() {
             </div>
           ) : null}
 
-          {/* Create New Batch */}
           <div className="mt-8 flex flex-col gap-3">
             <button
               type="button"
@@ -212,7 +221,6 @@ export default function HomePage() {
             )}
           </div>
 
-          {/* Open Batch */}
           <div className="mt-10 flex flex-col gap-3">
             <div className="text-sm font-medium text-zinc-900 dark:text-zinc-50">
               Open Batch
@@ -235,10 +243,9 @@ export default function HomePage() {
               </button>
             </div>
 
-            {/* Active Batches */}
             <div className="mt-6 flex items-center justify-between">
               <div className="text-sm font-semibold text-zinc-900 dark:text-zinc-50">
-                Active Batches
+                Your Batches
               </div>
 
               <button
@@ -261,9 +268,13 @@ export default function HomePage() {
                 <div className="text-sm text-zinc-600 dark:text-zinc-400">
                   Loading…
                 </div>
+              ) : !address ? (
+                <div className="text-sm text-zinc-600 dark:text-zinc-400">
+                  Connect wallet to view your batches.
+                </div>
               ) : activeBatches.length === 0 ? (
                 <div className="text-sm text-zinc-600 dark:text-zinc-400">
-                  No active batches found.
+                  No batches found for your wallet.
                 </div>
               ) : (
                 <div className="flex flex-col gap-2">
