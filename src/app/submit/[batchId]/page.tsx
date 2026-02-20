@@ -567,11 +567,10 @@ export default function SubmitBatchPage() {
   }
 
   async function getNonceForSignature(addressLower: string) {
-    const res = await fetch("/api/auth/nonce", {
-      method: "POST",
-      headers: { "content-type": "application/json" },
-      body: JSON.stringify({ address: addressLower }),
-    });
+    const res = await fetch(
+      `/api/auth/nonce?address=${encodeURIComponent(addressLower)}`,
+      { method: "GET", cache: "no-store" },
+    );
 
     const json = (await safeJson(res)) as any;
 
@@ -580,7 +579,12 @@ export default function SubmitBatchPage() {
     }
 
     const nonce = (json?.nonce ?? "").toString();
-    const expiresAt = (json?.expiresAt ?? json?.expires_at ?? "").toString();
+    const expiresAt = (
+      json?.expires_at ??
+      json?.expiresAt ??
+      json?.expiresAtIso ??
+      ""
+    ).toString();
 
     if (!nonce || !expiresAt) throw new Error("Bad nonce response");
     return { nonce, expiresAt };
@@ -715,14 +719,9 @@ export default function SubmitBatchPage() {
           signature,
           batchId,
           batchIdHash,
-          payload: {
-            v: 1,
-            created_at_unix: Math.floor(Date.now() / 1000),
-            batch_id: batchId,
-            batch_id_hash: batchIdHash,
-            provider_address: addressLower,
-            predictions: payload,
-          },
+          created_at_unix: Math.floor(Date.now() / 1000),
+          provider_address: addressLower,
+          payload,
         }),
       });
 

@@ -243,6 +243,9 @@ export async function POST(req: Request) {
         const pt = await aesGcmDecrypt(envelope);
         const plaintextJson = Buffer.from(pt).toString("utf8");
         payload = JSON.parse(plaintextJson);
+        if (Array.isArray(payload)) {
+          payload = { predictions: payload };
+        }
       } catch {
         continue;
       }
