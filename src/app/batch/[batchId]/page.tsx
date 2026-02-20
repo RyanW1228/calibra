@@ -3,6 +3,16 @@
 
 import React, { useEffect, useMemo, useState } from "react";
 import { useParams, useRouter } from "next/navigation";
+import {
+  useAccount,
+  useChainId,
+  useConnect,
+  useDisconnect,
+  useSignMessage,
+  useSwitchChain,
+} from "wagmi";
+import { type Address, type Hex } from "viem";
+import { ADI_TESTNET_CHAIN_ID, batchIdToHash } from "@/lib/calibraOnchain";
 import BatchFlightsTable, {
   type BatchFlightRow,
   type BatchPredictionRow,
@@ -168,6 +178,25 @@ export default function BatchPage() {
   const [predLoading, setPredLoading] = useState(false);
   const [predError, setPredError] = useState<string | null>(null);
   const [predictions, setPredictions] = useState<PredictionRow[]>([]);
+  const { address, isConnected } = useAccount();
+  const chainId = useChainId();
+  const { connectAsync, connectors } = useConnect();
+  const { disconnect } = useDisconnect();
+  const { signMessageAsync } = useSignMessage();
+  const { switchChainAsync } = useSwitchChain();
+
+  const [funderSubsLoading, setFunderSubsLoading] = useState(false);
+  const [funderSubsError, setFunderSubsError] = useState<string | null>(null);
+  const [funderSubsRows, setFunderSubsRows] = useState<
+    {
+      providerAddress: string;
+      createdAt: string | null;
+      predictions: {
+        schedule_key: string;
+        probabilities: Record<string, number>;
+      }[];
+    }[]
+  >([]);
 
   const [cantonLoading, setCantonLoading] = useState(false);
   const [cantonError, setCantonError] = useState<string | null>(null);
@@ -316,6 +345,145 @@ export default function BatchPage() {
     }
   }
 
+  function buildAuthMessage(
+    addressLower: string,
+    nonce: string,
+    expiresAtIso: string,
+  ) {
+    return (
+      `Calibra login\n` +
+      `Address: ${addressLower}\n` +
+      `Nonce: ${nonce}\n` +
+      `Expires: ${expiresAtIso}`
+    );
+  }
+
+  async function safeJson(res: Response) {
+    try {
+      return await res.json();
+    } catch {
+      return null;
+    }
+  }
+
+  async function ensureWalletReady() {
+    if (!isConnected) {
+      const connector = connectors[0];
+      if (!connector) throw new Error("No wallet connector available");
+      await connectAsync({ connector });
+    }
+
+    if (chainId !== ADI_TESTNET_CHAIN_ID) {
+      await switchChainAsync({ chainId: ADI_TESTNET_CHAIN_ID });
+    }
+  }
+
+  async function loadFunderSubmissions() {
+    setFunderSubsError(null);
+    setFunderSubsRows([]);
+
+    if (!batchId) {
+      setFunderSubsError("Missing batchId");
+      return;
+    }
+
+    try {
+      setFunderSubsLoading(true);
+
+      await ensureWalletReady();
+
+      const addr = (address ?? "").toString().toLowerCase();
+      if (!addr) throw new Error("Wallet not connected");
+
+      const nonceRes = await fetch(
+        `/api/auth/nonce?address=${encodeURIComponent(addr)}`,
+        { method: "GET", cache: "no-store" },
+      );
+      const nonceJson = (await safeJson(nonceRes)) as any;
+
+      if (!nonceRes.ok || !nonceJson?.ok) {
+        throw new Error((nonceJson?.error ?? "Failed to get nonce").toString());
+      }
+
+      const nonce = (nonceJson?.nonce ?? "").toString();
+      const expiresAtIso = (nonceJson?.expires_at ?? "").toString();
+      const message = buildAuthMessage(addr, nonce, expiresAtIso);
+
+      const signature = (await signMessageAsync({ message })) as Hex;
+
+      const batchIdHash = batchIdToHash(batchId) as Hex;
+
+      const listRes = await fetch("/api/submissions/list-for-funder", {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({
+          address: addr,
+          signature,
+          batchIdHash,
+        }),
+      });
+
+      const listJson = (await safeJson(listRes)) as any;
+
+      if (!listRes.ok || !listJson?.ok) {
+        throw new Error(
+          (listJson?.error ?? "Failed to load submissions").toString(),
+        );
+      }
+
+      const rowsRaw = Array.isArray(listJson?.submissions)
+        ? listJson.submissions
+        : [];
+
+      const normalized = rowsRaw
+        .map((x: any) => {
+          const createdAt = (x?.submission?.createdAt ??
+            x?.submission?.created_at ??
+            null) as string | null;
+
+          const providerAddress =
+            (
+              x?.submission?.providerAddress ??
+              x?.submission?.provider_address ??
+              ""
+            )?.toString() ?? "";
+
+          const preds =
+            x?.payload?.predictions && Array.isArray(x.payload.predictions)
+              ? x.payload.predictions
+              : [];
+
+          const cleanedPreds = preds
+            .map((p: any) => ({
+              schedule_key: (p?.schedule_key ?? "").toString(),
+              probabilities:
+                p?.probabilities && typeof p.probabilities === "object"
+                  ? (p.probabilities as Record<string, number>)
+                  : {},
+            }))
+            .filter(
+              (p: any) =>
+                p.schedule_key && Object.keys(p.probabilities).length > 0,
+            );
+
+          return {
+            providerAddress: providerAddress.toLowerCase(),
+            createdAt,
+            predictions: cleanedPreds,
+          };
+        })
+        .filter((r: any) => r.providerAddress && r.predictions.length > 0);
+
+      setFunderSubsRows(normalized);
+    } catch (e: any) {
+      setFunderSubsError(
+        e?.shortMessage ?? e?.message ?? "Failed to load submissions",
+      );
+    } finally {
+      setFunderSubsLoading(false);
+    }
+  }
+
   useEffect(() => {
     loadPredictions();
     loadCantonSubmissions();
@@ -392,14 +560,34 @@ export default function BatchPage() {
   }
 
   const predictionRows = useMemo(() => {
-    return predictions.map((p) => ({
-      schedule_key: p.schedule_key,
-      outcome: p.outcome,
-      confidence: p.confidence,
-      created_at: p.created_at,
-      probabilities: p.probabilities ?? null,
-    })) satisfies BatchPredictionRow[];
-  }, [predictions]);
+    const rows: BatchPredictionRow[] = [];
+
+    // 1) Existing (placeholder) predictions endpoint rows
+    for (const p of predictions) {
+      rows.push({
+        schedule_key: p.schedule_key,
+        outcome: p.outcome,
+        confidence: p.confidence,
+        created_at: p.created_at,
+        probabilities: p.probabilities ?? null,
+      });
+    }
+
+    // 2) Funder-only decrypted submissions -> flatten into per-flight rows
+    for (const sub of funderSubsRows) {
+      for (const p of sub.predictions) {
+        rows.push({
+          schedule_key: p.schedule_key,
+          outcome: null,
+          confidence: null,
+          created_at: sub.createdAt ?? null,
+          probabilities: p.probabilities ?? null,
+        });
+      }
+    }
+
+    return rows;
+  }, [predictions, funderSubsRows]);
 
   const predictionColumns = useMemo(() => {
     return buildThresholdColumns(batch?.thresholds_minutes ?? null);
@@ -502,11 +690,15 @@ export default function BatchPage() {
               </button>
 
               <button
-                onClick={loadCantonSubmissions}
-                disabled={cantonLoading}
+                onClick={loadFunderSubmissions}
+                disabled={funderSubsLoading}
                 className="inline-flex h-9 items-center justify-center rounded-full border border-zinc-200 bg-white px-4 text-xs font-medium text-zinc-900 transition hover:bg-zinc-50 disabled:opacity-60 dark:border-zinc-800 dark:bg-zinc-950 dark:text-zinc-50 dark:hover:bg-black"
               >
-                {cantonLoading ? "Loading…" : "Refresh Canton Submissions"}
+                {funderSubsLoading
+                  ? "Loading…"
+                  : isConnected
+                    ? "Refresh Funder Submissions"
+                    : "Connect + Load Submissions"}
               </button>
             </div>
           </div>
@@ -524,9 +716,9 @@ export default function BatchPage() {
             </div>
           ) : null}
 
-          {cantonError ? (
-            <div className="mt-6 rounded-xl border border-zinc-200 bg-white p-4 text-sm text-zinc-700 dark:border-zinc-800 dark:bg-zinc-950 dark:text-zinc-200">
-              {cantonError}
+          {funderSubsError ? (
+            <div className="mt-6 rounded-xl border border-red-200 bg-red-50 p-4 text-sm text-red-700 dark:border-red-900/50 dark:bg-red-950/30 dark:text-red-200">
+              {funderSubsError}
             </div>
           ) : null}
 
