@@ -24,6 +24,9 @@ export type BatchFlightRow = {
 
 export type BatchPredictionRow = {
   schedule_key: string;
+
+  provider_address?: string | null;
+
   outcome?: string | null;
   confidence?: number | null;
   created_at?: string | null;

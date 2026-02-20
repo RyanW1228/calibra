@@ -509,6 +509,7 @@ export default function BatchPage() {
     for (const p of predictions) {
       rows.push({
         schedule_key: p.schedule_key,
+        provider_address: p.model ? p.model.toLowerCase() : null,
         outcome: p.outcome,
         confidence: p.confidence,
         created_at: p.created_at,
@@ -520,6 +521,7 @@ export default function BatchPage() {
       for (const p of sub.predictions) {
         rows.push({
           schedule_key: p.schedule_key,
+          provider_address: sub.providerAddress,
           outcome: null,
           confidence: null,
           created_at: sub.createdAt ?? null,
