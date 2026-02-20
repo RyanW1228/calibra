@@ -9,6 +9,11 @@ type Props = {
   predictions: BatchPredictionRow[];
   isLoading: boolean;
   thresholdsMinutes: number[] | null | undefined;
+
+  refreshMetaText?: string;
+  refreshDisabled?: boolean;
+  refreshLabel?: string;
+  onRefresh?: () => void;
 };
 
 function pickLatestPrediction(
@@ -91,6 +96,10 @@ export default function BatchPredictionsTable({
   predictions,
   isLoading,
   thresholdsMinutes,
+  refreshMetaText,
+  refreshDisabled,
+  refreshLabel,
+  onRefresh,
 }: Props) {
   const predictionByScheduleKey = useMemo(() => {
     const m = new Map<string, BatchPredictionRow>();
@@ -110,6 +119,20 @@ export default function BatchPredictionsTable({
 
   return (
     <div className="mt-6 overflow-auto rounded-xl border border-zinc-200 dark:border-zinc-800">
+      <div className="flex items-center justify-between gap-3 border-b border-zinc-200 bg-white px-4 py-3 text-xs text-zinc-600 dark:border-zinc-800 dark:bg-zinc-950 dark:text-zinc-400">
+        <div className="font-mono">{refreshMetaText ?? " "}</div>
+
+        {onRefresh ? (
+          <button
+            onClick={onRefresh}
+            disabled={!!refreshDisabled}
+            className="inline-flex h-9 items-center justify-center rounded-full border border-zinc-200 bg-white px-4 text-xs font-medium text-zinc-900 transition hover:bg-zinc-50 disabled:opacity-60 dark:border-zinc-800 dark:bg-zinc-950 dark:text-zinc-50 dark:hover:bg-black"
+          >
+            {refreshLabel ?? "Refresh Submissions"}
+          </button>
+        ) : null}
+      </div>
+
       <table className="min-w-[900px] text-left text-sm">
         <thead className="sticky top-0 z-10 bg-zinc-50 text-xs text-zinc-600 dark:bg-black dark:text-zinc-400">
           <tr>

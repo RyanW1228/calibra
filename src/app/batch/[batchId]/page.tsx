@@ -190,6 +190,9 @@ export default function BatchPage() {
   const [updateLoading, setUpdateLoading] = useState(false);
   const [updateError, setUpdateError] = useState<string | null>(null);
   const [lastUpdateMs, setLastUpdateMs] = useState<number | null>(null);
+  const [lastSubsRefreshMs, setLastSubsRefreshMs] = useState<number | null>(
+    null,
+  );
 
   const tz = useMemo(() => {
     const v = (batch?.display_time_zone ?? "UTC").toString();
@@ -420,6 +423,7 @@ export default function BatchPage() {
         .filter((r: any) => r.providerAddress && r.predictions.length > 0);
 
       setFunderSubsRows(normalized);
+      setLastSubsRefreshMs(Date.now());
     } catch (e: any) {
       setFunderSubsError(
         e?.shortMessage ?? e?.message ?? "Failed to load submissions",
@@ -703,16 +707,23 @@ export default function BatchPage() {
           </div>
 
           <div className="mt-8 rounded-2xl border border-zinc-200 p-5 dark:border-zinc-800">
-            <div className="flex items-center justify-between gap-3">
-              <div className="text-sm font-semibold text-zinc-900 dark:text-zinc-50">
-                Flights
+            <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+              <div className="flex flex-col gap-1">
+                <div className="text-sm font-semibold text-zinc-900 dark:text-zinc-50">
+                  Flights
+                </div>
+                <div className="text-xs text-zinc-500 dark:text-zinc-400">
+                  <span className="font-mono">{updateMetaText}</span>
+                </div>
               </div>
 
-              <div className="text-xs text-zinc-500 dark:text-zinc-400">
-                Created:{" "}
-                <span className="font-mono">
-                  {fmtIsoLocal(batch?.created_at ?? null)}
-                </span>
+              <div className="flex items-center gap-2 sm:justify-end">
+                <div className="text-xs text-zinc-500 dark:text-zinc-400">
+                  Created:{" "}
+                  <span className="font-mono">
+                    {fmtIsoLocal(batch?.created_at ?? null)}
+                  </span>
+                </div>
               </div>
             </div>
 
@@ -723,27 +734,28 @@ export default function BatchPage() {
               displayTimeZone={tz}
               onUpdate={handleUpdate}
               updateDisabled={updateDisabled}
-              updateLabel={updateLoading ? "Updating…" : "Update"}
+              updateLabel={updateLoading ? "Updating…" : "Update Flights"}
               updateMetaText={updateMetaText}
             />
 
             <div className="mt-10">
-              <div className="flex items-center justify-between gap-3">
-                <div className="text-sm font-semibold text-zinc-900 dark:text-zinc-50">
-                  Prediction Probabilities
+              <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+                <div className="flex flex-col gap-1">
+                  <div className="text-sm font-semibold text-zinc-900 dark:text-zinc-50">
+                    Predictions
+                  </div>
+                  <div className="text-xs text-zinc-500 dark:text-zinc-400">
+                    <span className="font-mono">
+                      {typeof lastUpdateMs === "number"
+                        ? nowMs < nextAllowedMs
+                          ? `Next refresh in ${Math.ceil((nextAllowedMs - nowMs) / 1000)}s`
+                          : `Last refresh: ${fmtIsoLocal(new Date(lastUpdateMs).toISOString())}`
+                        : " "}
+                    </span>{" "}
+                  </div>
                 </div>
 
-                <button
-                  onClick={loadFunderSubmissions}
-                  disabled={funderSubsLoading}
-                  className="inline-flex h-9 items-center justify-center rounded-full border border-zinc-200 bg-white px-4 text-xs font-medium text-zinc-900 transition hover:bg-zinc-50 disabled:opacity-60 dark:border-zinc-800 dark:bg-zinc-950 dark:text-zinc-50 dark:hover:bg-black"
-                >
-                  {funderSubsLoading
-                    ? "Loading…"
-                    : isConnected
-                      ? "Refresh Submissions"
-                      : "Connect + Load Submissions"}
-                </button>
+                <div className="flex items-center gap-2 sm:justify-end" />
               </div>
 
               <BatchPredictionsTable
@@ -751,6 +763,20 @@ export default function BatchPage() {
                 predictions={predictionRows}
                 isLoading={isLoading || predLoading}
                 thresholdsMinutes={batch?.thresholds_minutes ?? null}
+                onRefresh={loadFunderSubmissions}
+                refreshDisabled={funderSubsLoading}
+                refreshLabel={
+                  funderSubsLoading
+                    ? "Loading…"
+                    : isConnected
+                      ? "Refresh Submissions"
+                      : "Connect + Load Submissions"
+                }
+                refreshMetaText={
+                  typeof lastSubsRefreshMs === "number"
+                    ? `Last refresh: ${fmtIsoLocal(new Date(lastSubsRefreshMs).toISOString())}`
+                    : " "
+                }
               />
             </div>
           </div>
