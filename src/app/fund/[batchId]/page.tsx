@@ -71,14 +71,30 @@ const USDC_ABI = [
 const CALIBRA_PROTOCOL_ABI = [
   {
     type: "function",
+    name: "createBatch",
+    stateMutability: "nonpayable",
+    inputs: [
+      { name: "batchIdHash", type: "bytes32" },
+      { name: "funder", type: "address" },
+      { name: "windowStart", type: "uint64" },
+      { name: "windowEnd", type: "uint64" },
+      { name: "revealDeadline", type: "uint64" },
+      { name: "seedHash", type: "bytes32" },
+      { name: "specHash", type: "bytes32" },
+      { name: "funderEncryptPubKey", type: "bytes" },
+      { name: "refundTopBP", type: "uint16" },
+      { name: "minCommitsPerProvider", type: "uint32" },
+      { name: "maxCommitsPerProvider", type: "uint32" },
+      { name: "requireRevealAllCommits", type: "bool" },
+    ],
+    outputs: [],
+  },
+  {
+    type: "function",
     name: "fundBatch",
     stateMutability: "nonpayable",
     inputs: [
       { name: "batchIdHash", type: "bytes32" },
-      { name: "windowStart", type: "uint64" },
-      { name: "windowEnd", type: "uint64" },
-      { name: "seedHash", type: "bytes32" },
-      { name: "specHash", type: "bytes32" },
       { name: "bountyAmount", type: "uint256" },
     ],
     outputs: [],
@@ -347,6 +363,11 @@ export default function FundBatchPage() {
       return;
     }
 
+    if (!addr) {
+      setTxError("Wallet not connected");
+      return;
+    }
+
     const wsU = unixFromDatetimeLocal(windowStartLocal.trim(), tz);
     const weU = unixFromDatetimeLocal(windowEndLocal.trim(), tz);
     if (wsU === null || weU === null) {
@@ -397,18 +418,43 @@ export default function FundBatchPage() {
 
       await publicClient.waitForTransactionReceipt({ hash: approveHash });
 
+      const revealDeadlineU = weU + 6 * 60 * 60;
+
+      const refundTopBP = 2_000;
+      const minCommitsPerProvider = 1;
+      const maxCommitsPerProvider = 50;
+      const requireRevealAllCommits = false;
+
+      const funderEncryptPubKey = "0x01" as Hex;
+
+      const createHash = await writeContractAsync({
+        address: CALIBRA_PROTOCOL,
+        abi: CALIBRA_PROTOCOL_ABI,
+        functionName: "createBatch",
+        args: [
+          batchIdHash,
+          addr as Address,
+          BigInt(wsU),
+          BigInt(weU),
+          BigInt(revealDeadlineU),
+          seedHash,
+          specHash,
+          funderEncryptPubKey,
+          refundTopBP,
+          minCommitsPerProvider,
+          maxCommitsPerProvider,
+          requireRevealAllCommits,
+        ],
+        chainId: ADI_TESTNET_CHAIN_ID,
+      });
+
+      await publicClient.waitForTransactionReceipt({ hash: createHash });
+
       const fundHash = await writeContractAsync({
         address: CALIBRA_PROTOCOL,
         abi: CALIBRA_PROTOCOL_ABI,
         functionName: "fundBatch",
-        args: [
-          batchIdHash,
-          BigInt(wsU),
-          BigInt(weU),
-          seedHash,
-          specHash,
-          amount,
-        ],
+        args: [batchIdHash, amount],
         chainId: ADI_TESTNET_CHAIN_ID,
       });
 
