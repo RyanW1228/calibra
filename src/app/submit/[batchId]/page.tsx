@@ -14,7 +14,7 @@ import {
   useSwitchChain,
   useWriteContract,
 } from "wagmi";
-import { parseUnits, type Address, type Hex } from "viem";
+import { type Address, type Hex } from "viem";
 import {
   ADI_TESTNET_CHAIN_ID,
   batchIdToHash,
@@ -75,13 +75,16 @@ type ProviderSummary = {
   payoutClaimed: boolean;
 };
 
+type Phase =
+  | "loading"
+  | "prewindow"
+  | "commit"
+  | "reveal"
+  | "postreveal"
+  | "finalized";
+
 function isHex(s: string) {
   return /^0x[0-9a-fA-F]*$/.test(s);
-}
-
-function base64ToHex(b64: string): Hex {
-  const buf = Buffer.from(b64, "base64");
-  return (`0x${buf.toString("hex")}` as Hex) || ("0x" as Hex);
 }
 
 function nowSecBigint() {
@@ -101,77 +104,256 @@ function buildAuthMessage(
   );
 }
 
-export default function SubmitBatchPage() {
-  const router = useRouter();
-  const params = useParams<{ batchId: string }>();
-  const batchId = (params?.batchId ?? "").toString();
+function base64ToHex(b64: string): Hex {
+  const bin = atob(b64);
+  let hex = "0x";
+  for (let i = 0; i < bin.length; i += 1) {
+    const h = bin.charCodeAt(i).toString(16).padStart(2, "0");
+    hex += h;
+  }
+  return hex as Hex;
+}
 
+async function safeJson(res: Response) {
+  try {
+    return await res.json();
+  } catch {
+    return null;
+  }
+}
+
+function ErrorBanner(props: { title: string; message: string }) {
+  return (
+    <div className="mt-6 rounded-xl border border-red-200 bg-red-50 p-4 text-sm text-red-700 dark:border-red-900/50 dark:bg-red-950/30 dark:text-red-200">
+      <div className="font-medium">{props.title}</div>
+      <div className="mt-1 break-words">{props.message}</div>
+    </div>
+  );
+}
+
+function OkBanner(props: { title: string; message: string }) {
+  return (
+    <div className="mt-6 rounded-xl border border-emerald-200 bg-emerald-50 p-4 text-sm text-emerald-800 dark:border-emerald-900/50 dark:bg-emerald-950/30 dark:text-emerald-200">
+      <div className="font-medium">{props.title}</div>
+      <div className="mt-1 break-words">{props.message}</div>
+    </div>
+  );
+}
+
+function SubmitHeader(props: {
+  batchId: string;
+  isConnected: boolean;
+  onConnect: () => void;
+  onDisconnect: () => void;
+  onBack: () => void;
+}) {
+  return (
+    <div className="flex items-start justify-between gap-6">
+      <div className="flex flex-col gap-2">
+        <h1 className="text-2xl font-semibold tracking-tight text-zinc-950 dark:text-zinc-50">
+          Submit Predictions
+        </h1>
+        <div className="text-sm text-zinc-600 dark:text-zinc-400">
+          Batch ID: <span className="font-mono">{props.batchId}</span>
+        </div>
+      </div>
+
+      <div className="flex items-center gap-2">
+        {props.isConnected ? (
+          <button
+            onClick={props.onDisconnect}
+            className="inline-flex h-9 items-center justify-center rounded-full border border-zinc-200 bg-white px-4 text-xs font-medium text-zinc-900 transition hover:bg-zinc-50 dark:border-zinc-800 dark:bg-zinc-950 dark:text-zinc-50 dark:hover:bg-black"
+          >
+            Disconnect
+          </button>
+        ) : (
+          <button
+            onClick={props.onConnect}
+            className="inline-flex h-9 items-center justify-center rounded-full bg-zinc-900 px-4 text-xs font-medium text-white transition hover:bg-zinc-800 dark:bg-zinc-50 dark:text-zinc-900 dark:hover:bg-zinc-200"
+          >
+            Connect Wallet
+          </button>
+        )}
+
+        <button
+          onClick={props.onBack}
+          className="inline-flex h-9 items-center justify-center rounded-full border border-zinc-200 bg-white px-4 text-xs font-medium text-zinc-900 transition hover:bg-zinc-50 dark:border-zinc-800 dark:bg-zinc-950 dark:text-zinc-50 dark:hover:bg-black"
+        >
+          Back
+        </button>
+      </div>
+    </div>
+  );
+}
+
+function StatusCards(props: {
+  isOnchainLoading: boolean;
+  phase: Phase;
+  provider: ProviderSummary | null;
+  tz: string;
+}) {
+  return (
+    <div className="mt-6 grid gap-4 sm:grid-cols-3">
+      <div className="rounded-xl border border-zinc-200 p-4 dark:border-zinc-800">
+        <div className="text-xs text-zinc-500 dark:text-zinc-400">Phase</div>
+        <div className="mt-1 text-sm font-medium text-zinc-900 dark:text-zinc-50">
+          {props.isOnchainLoading ? "Loading…" : props.phase}
+        </div>
+      </div>
+
+      <div className="rounded-xl border border-zinc-200 p-4 dark:border-zinc-800">
+        <div className="text-xs text-zinc-500 dark:text-zinc-400">Joined</div>
+        <div className="mt-1 text-sm font-medium text-zinc-900 dark:text-zinc-50">
+          {props.provider?.joined
+            ? "Yes"
+            : props.isOnchainLoading
+              ? "Loading…"
+              : "No"}
+        </div>
+      </div>
+
+      <div className="rounded-xl border border-zinc-200 p-4 dark:border-zinc-800">
+        <div className="text-xs text-zinc-500 dark:text-zinc-400">
+          Commits / Reveals
+        </div>
+        <div className="mt-1 text-sm font-medium text-zinc-900 dark:text-zinc-50">
+          {props.provider
+            ? `${props.provider.commitCount.toString()} / ${props.provider.revealedCount.toString()}`
+            : props.isOnchainLoading
+              ? "Loading…"
+              : "—"}
+        </div>
+        <div className="mt-1 text-[11px] text-zinc-500 dark:text-zinc-400">
+          Display Time Zone: <span className="font-mono">{props.tz}</span>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+function ActionBar(props: {
+  isOnchainLoading: boolean;
+  isSubmitting: boolean;
+  canJoin: boolean;
+  canReveal: boolean;
+  onRefreshOnchain: () => void;
+  onJoin: () => void;
+  onRevealLatest: () => void;
+}) {
+  return (
+    <div className="mt-4 flex flex-wrap items-center gap-2">
+      <button
+        onClick={props.onRefreshOnchain}
+        disabled={props.isOnchainLoading}
+        className="inline-flex h-9 items-center justify-center rounded-xl border border-zinc-200 bg-white px-4 text-sm font-medium text-zinc-900 transition hover:bg-zinc-50 disabled:opacity-60 dark:border-zinc-800 dark:bg-zinc-950 dark:text-zinc-50 dark:hover:bg-black"
+      >
+        {props.isOnchainLoading ? "Refreshing…" : "Refresh On-chain"}
+      </button>
+
+      <button
+        onClick={props.onJoin}
+        disabled={!props.canJoin || props.isSubmitting}
+        className="inline-flex h-9 items-center justify-center rounded-xl bg-zinc-900 px-4 text-sm font-medium text-white transition hover:bg-zinc-800 disabled:opacity-60 dark:bg-zinc-50 dark:text-zinc-900 dark:hover:bg-zinc-200"
+      >
+        {props.isSubmitting ? "Working…" : "Join (Bond)"}
+      </button>
+
+      <button
+        onClick={props.onRevealLatest}
+        disabled={!props.canReveal || props.isSubmitting}
+        className="inline-flex h-9 items-center justify-center rounded-xl border border-zinc-200 bg-white px-4 text-sm font-medium text-zinc-900 transition hover:bg-zinc-50 disabled:opacity-60 dark:border-zinc-800 dark:bg-zinc-950 dark:text-zinc-50 dark:hover:bg-black"
+      >
+        {props.isSubmitting ? "Working…" : "Reveal Latest"}
+      </button>
+    </div>
+  );
+}
+
+function useEnrichedBatch(batchId: string) {
   const [isLoading, setIsLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
-
   const [batch, setBatch] = useState<BatchInfo | null>(null);
   const [flights, setFlights] = useState<BatchFlight[]>([]);
 
-  const [predByScheduleKey, setPredByScheduleKey] = useState<
-    Record<string, Record<string, string>>
-  >({});
+  useEffect(() => {
+    let alive = true;
 
-  const [uiError, setUiError] = useState<string | null>(null);
-  const [uiOk, setUiOk] = useState<string | null>(null);
-  const [isSubmitting, setIsSubmitting] = useState(false);
+    async function run() {
+      if (!batchId) {
+        setError("Missing batchId");
+        setIsLoading(false);
+        return;
+      }
+
+      setIsLoading(true);
+      setError(null);
+
+      try {
+        const res = await fetch(
+          `/api/batches/get-enriched?batchId=${encodeURIComponent(batchId)}`,
+          { method: "GET", cache: "no-store" },
+        );
+
+        const json = (await safeJson(res)) as BatchGetResponse | null;
+
+        if (!res.ok || !json || !json.ok) {
+          const msg =
+            json && !json.ok ? json.error : "Request failed (get-enriched)";
+          setError(msg);
+          setIsLoading(false);
+          return;
+        }
+
+        if (!alive) return;
+
+        setBatch(json.batch);
+        setFlights(Array.isArray(json.flights) ? json.flights : []);
+      } catch (e: any) {
+        if (!alive) return;
+        setError(e?.message ?? "Failed to load batch");
+      } finally {
+        if (!alive) return;
+        setIsLoading(false);
+      }
+    }
+
+    run();
+    return () => {
+      alive = false;
+    };
+  }, [batchId]);
+
+  return { isLoading, error, batch, flights };
+}
+
+function useOnchainState(params: {
+  batchId: string;
+  address: Address | null;
+  publicClient: any;
+}) {
+  const { batchId, address, publicClient } = params;
 
   const [isOnchainLoading, setIsOnchainLoading] = useState(true);
   const [onchainError, setOnchainError] = useState<string | null>(null);
   const [onchainBatch, setOnchainBatch] = useState<OnchainBatch | null>(null);
   const [provider, setProvider] = useState<ProviderSummary | null>(null);
 
-  const tz = useMemo(() => {
-    const v = (batch?.display_time_zone ?? "UTC").toString();
-    return v || "UTC";
-  }, [batch]);
-
-  const { address, isConnected } = useAccount();
-  const chainId = useChainId();
-  const { connectAsync, connectors } = useConnect();
-  const { disconnect } = useDisconnect();
-  const { switchChainAsync } = useSwitchChain();
-  const publicClient = usePublicClient();
-  const { writeContractAsync } = useWriteContract();
-  const { signMessageAsync } = useSignMessage();
-
-  const addr = useMemo(() => {
-    if (!address) return null;
-    return address as Address;
-  }, [address]);
-
   const batchIdHash = useMemo(() => {
     if (!batchId) return null;
     return batchIdToHash(batchId);
   }, [batchId]);
 
-  const phase = useMemo(() => {
+  const phase = useMemo<Phase>(() => {
     const b = onchainBatch;
-    if (!b) return "loading" as const;
+    if (!b) return "loading";
 
     const t = nowSecBigint();
-    if (b.finalized) return "finalized" as const;
-    if (t < b.windowStart) return "prewindow" as const;
-    if (t >= b.windowStart && t < b.windowEnd) return "commit" as const;
-    if (t >= b.windowEnd && t <= b.revealDeadline) return "reveal" as const;
-    return "postreveal" as const;
+    if (b.finalized) return "finalized";
+    if (t < b.windowStart) return "prewindow";
+    if (t >= b.windowStart && t < b.windowEnd) return "commit";
+    if (t >= b.windowEnd && t <= b.revealDeadline) return "reveal";
+    return "postreveal";
   }, [onchainBatch]);
-
-  async function ensureWalletReady() {
-    if (!isConnected) {
-      const connector = connectors[0];
-      if (!connector) throw new Error("No wallet connector available");
-      await connectAsync({ connector });
-    }
-
-    if (chainId !== ADI_TESTNET_CHAIN_ID) {
-      await switchChainAsync({ chainId: ADI_TESTNET_CHAIN_ID });
-    }
-  }
 
   async function loadOnchain() {
     setIsOnchainLoading(true);
@@ -229,12 +411,12 @@ export default function SubmitBatchPage() {
         joinBond: res[14],
       });
 
-      if (addr) {
+      if (address) {
         const ps = (await publicClient.readContract({
           address: CALIBRA_PROTOCOL,
           abi: CALIBRA_PROTOCOL_ABI,
           functionName: "getProviderSummary",
-          args: [batchIdHash, addr],
+          args: [batchIdHash, address],
         })) as unknown as readonly [
           boolean,
           bigint,
@@ -271,69 +453,94 @@ export default function SubmitBatchPage() {
   }
 
   useEffect(() => {
-    let alive = true;
-
-    async function run() {
-      if (!batchId) {
-        setError("Missing batchId");
-        setIsLoading(false);
-        return;
-      }
-
-      setIsLoading(true);
-      setError(null);
-
-      try {
-        const res = await fetch(
-          `/api/batches/get-enriched?batchId=${encodeURIComponent(batchId)}`,
-          { method: "GET", cache: "no-store" },
-        );
-
-        const json = (await res.json()) as BatchGetResponse;
-
-        if (!res.ok || !json.ok) {
-          setError(json.ok ? "Request failed" : json.error);
-          setIsLoading(false);
-          return;
-        }
-
-        if (!alive) return;
-
-        setBatch(json.batch);
-
-        const fs = Array.isArray(json.flights) ? json.flights : [];
-        setFlights(fs);
-
-        setPredByScheduleKey((prev) => {
-          const next: Record<string, Record<string, string>> = { ...prev };
-          for (const f of fs) {
-            const key = (f.schedule_key ?? "").trim();
-            if (!key) continue;
-            if (!next[key]) next[key] = {};
-          }
-          return next;
-        });
-      } catch (e: any) {
-        if (!alive) return;
-        setError(e?.message ?? "Failed to load batch");
-      } finally {
-        if (!alive) return;
-        setIsLoading(false);
-      }
-    }
-
-    run();
-    return () => {
-      alive = false;
-    };
-  }, [batchId]);
-
-  useEffect(() => {
     if (!publicClient) return;
     if (!batchIdHash) return;
     loadOnchain();
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [publicClient, batchIdHash, addr]);
+  }, [publicClient, batchIdHash, address]);
+
+  return {
+    batchIdHash,
+    isOnchainLoading,
+    onchainError,
+    onchainBatch,
+    provider,
+    phase,
+    loadOnchain,
+  };
+}
+
+export default function SubmitBatchPage() {
+  const router = useRouter();
+  const params = useParams<{ batchId: string }>();
+  const batchId = (params?.batchId ?? "").toString();
+
+  const [predByScheduleKey, setPredByScheduleKey] = useState<
+    Record<string, Record<string, string>>
+  >({});
+
+  const [uiError, setUiError] = useState<string | null>(null);
+  const [uiOk, setUiOk] = useState<string | null>(null);
+  const [isSubmitting, setIsSubmitting] = useState(false);
+
+  const { address, isConnected } = useAccount();
+  const chainId = useChainId();
+  const { connectAsync, connectors } = useConnect();
+  const { disconnect } = useDisconnect();
+  const { switchChainAsync } = useSwitchChain();
+  const publicClient = usePublicClient();
+  const { writeContractAsync } = useWriteContract();
+  const { signMessageAsync } = useSignMessage();
+
+  const addr = useMemo(
+    () => (address ? (address as Address) : null),
+    [address],
+  );
+
+  const { isLoading, error, batch, flights } = useEnrichedBatch(batchId);
+
+  const tz = useMemo(() => {
+    const v = (batch?.display_time_zone ?? "UTC").toString();
+    return v || "UTC";
+  }, [batch]);
+
+  useEffect(() => {
+    setPredByScheduleKey((prev) => {
+      const next: Record<string, Record<string, string>> = { ...prev };
+      for (const f of flights) {
+        const key = (f.schedule_key ?? "").trim();
+        if (!key) continue;
+        if (!next[key]) next[key] = {};
+      }
+      return next;
+    });
+  }, [flights]);
+
+  const {
+    batchIdHash,
+    isOnchainLoading,
+    onchainError,
+    onchainBatch,
+    provider,
+    phase,
+    loadOnchain,
+  } = useOnchainState({
+    batchId,
+    address: addr,
+    publicClient,
+  });
+
+  async function ensureWalletReady() {
+    if (!isConnected) {
+      const connector = connectors[0];
+      if (!connector) throw new Error("No wallet connector available");
+      await connectAsync({ connector });
+    }
+
+    if (chainId !== ADI_TESTNET_CHAIN_ID) {
+      await switchChainAsync({ chainId: ADI_TESTNET_CHAIN_ID });
+    }
+  }
 
   async function ensureAllowanceAtLeast(required: bigint) {
     if (!publicClient) throw new Error("No public client");
@@ -357,6 +564,26 @@ export default function SubmitBatchPage() {
     });
 
     await publicClient.waitForTransactionReceipt({ hash: approveHash });
+  }
+
+  async function getNonceForSignature(addressLower: string) {
+    const res = await fetch("/api/auth/nonce", {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ address: addressLower }),
+    });
+
+    const json = (await safeJson(res)) as any;
+
+    if (!res.ok || !json?.ok) {
+      throw new Error((json?.error ?? "Failed to get nonce").toString());
+    }
+
+    const nonce = (json?.nonce ?? "").toString();
+    const expiresAt = (json?.expiresAt ?? json?.expires_at ?? "").toString();
+
+    if (!nonce || !expiresAt) throw new Error("Bad nonce response");
+    return { nonce, expiresAt };
   }
 
   async function onJoin() {
@@ -395,25 +622,6 @@ export default function SubmitBatchPage() {
     } finally {
       setIsSubmitting(false);
     }
-  }
-
-  async function getNonceForSignature(addressLower: string) {
-    const res = await fetch("/api/auth/nonce", {
-      method: "POST",
-      headers: { "content-type": "application/json" },
-      body: JSON.stringify({ address: addressLower }),
-    });
-
-    const json = (await res.json().catch(() => null)) as any;
-    if (!res.ok || !json?.ok) {
-      throw new Error((json?.error ?? "Failed to get nonce").toString());
-    }
-
-    const nonce = (json?.nonce ?? "").toString();
-    const expiresAt = (json?.expiresAt ?? json?.expires_at ?? "").toString();
-
-    if (!nonce || !expiresAt) throw new Error("Bad nonce response");
-    return { nonce, expiresAt };
   }
 
   async function onSubmit() {
@@ -497,9 +705,7 @@ export default function SubmitBatchPage() {
       const { nonce, expiresAt } = await getNonceForSignature(addressLower);
 
       const message = buildAuthMessage(addressLower, nonce, expiresAt);
-      const signature = (await signMessageAsync({
-        message,
-      })) as Hex;
+      const signature = (await signMessageAsync({ message })) as Hex;
 
       const uploadRes = await fetch("/api/submissions/upload", {
         method: "POST",
@@ -520,7 +726,8 @@ export default function SubmitBatchPage() {
         }),
       });
 
-      const uploadJson = (await uploadRes.json().catch(() => null)) as any;
+      const uploadJson = (await safeJson(uploadRes)) as any;
+
       if (!uploadRes.ok || !uploadJson?.ok) {
         throw new Error((uploadJson?.error ?? "Upload failed").toString());
       }
@@ -556,13 +763,6 @@ export default function SubmitBatchPage() {
         throw new Error("Upload did not return encryptedUriHash");
       }
 
-      const beforeCount = (await publicClient.readContract({
-        address: CALIBRA_PROTOCOL,
-        abi: CALIBRA_PROTOCOL_ABI,
-        functionName: "getCommitCount",
-        args: [batchIdHash, addr],
-      })) as unknown as number;
-
       const txHash = await writeContractAsync({
         address: CALIBRA_PROTOCOL,
         abi: CALIBRA_PROTOCOL_ABI,
@@ -573,19 +773,7 @@ export default function SubmitBatchPage() {
 
       await publicClient.waitForTransactionReceipt({ hash: txHash });
 
-      const afterCount = (await publicClient.readContract({
-        address: CALIBRA_PROTOCOL,
-        abi: CALIBRA_PROTOCOL_ABI,
-        functionName: "getCommitCount",
-        args: [batchIdHash, addr],
-      })) as unknown as number;
-
-      const newIndex = Math.max(0, afterCount - 1);
-
-      setUiOk(
-        `Committed on-chain (commitIndex ${newIndex}). You can reveal after the window ends.`,
-      );
-
+      setUiOk("Committed on-chain. You can reveal after the window ends.");
       await loadOnchain();
     } catch (e: any) {
       setUiError(e?.shortMessage ?? e?.message ?? "Submit failed");
@@ -627,7 +815,8 @@ export default function SubmitBatchPage() {
         }),
       });
 
-      const readJson = (await readRes.json().catch(() => null)) as any;
+      const readJson = (await safeJson(readRes)) as any;
+
       if (!readRes.ok || !readJson?.ok) {
         throw new Error((readJson?.error ?? "Read failed").toString());
       }
@@ -722,146 +911,47 @@ export default function SubmitBatchPage() {
     <div className="flex min-h-screen items-center justify-center bg-zinc-50 font-sans dark:bg-black">
       <main className="w-full max-w-5xl px-6 py-12">
         <div className="rounded-2xl bg-white p-8 shadow-sm dark:bg-zinc-950">
-          <div className="flex items-start justify-between gap-6">
-            <div className="flex flex-col gap-2">
-              <h1 className="text-2xl font-semibold tracking-tight text-zinc-950 dark:text-zinc-50">
-                Submit Predictions
-              </h1>
-              <div className="text-sm text-zinc-600 dark:text-zinc-400">
-                Batch ID: <span className="font-mono">{batchId}</span>
-              </div>
-            </div>
+          <SubmitHeader
+            batchId={batchId}
+            isConnected={isConnected}
+            onDisconnect={() => disconnect()}
+            onConnect={async () => {
+              try {
+                await ensureWalletReady();
+              } catch (e: any) {
+                setUiError(
+                  e?.shortMessage ?? e?.message ?? "Failed to connect wallet",
+                );
+              }
+            }}
+            onBack={() => router.push("/submit")}
+          />
 
-            <div className="flex items-center gap-2">
-              {isConnected ? (
-                <button
-                  onClick={() => disconnect()}
-                  className="inline-flex h-9 items-center justify-center rounded-full border border-zinc-200 bg-white px-4 text-xs font-medium text-zinc-900 transition hover:bg-zinc-50 dark:border-zinc-800 dark:bg-zinc-950 dark:text-zinc-50 dark:hover:bg-black"
-                >
-                  Disconnect
-                </button>
-              ) : (
-                <button
-                  onClick={async () => {
-                    try {
-                      await ensureWalletReady();
-                    } catch (e: any) {
-                      setUiError(
-                        e?.shortMessage ??
-                          e?.message ??
-                          "Failed to connect wallet",
-                      );
-                    }
-                  }}
-                  className="inline-flex h-9 items-center justify-center rounded-full bg-zinc-900 px-4 text-xs font-medium text-white transition hover:bg-zinc-800 dark:bg-zinc-50 dark:text-zinc-900 dark:hover:bg-zinc-200"
-                >
-                  Connect Wallet
-                </button>
-              )}
-
-              <button
-                onClick={() => router.push("/submit")}
-                className="inline-flex h-9 items-center justify-center rounded-full border border-zinc-200 bg-white px-4 text-xs font-medium text-zinc-900 transition hover:bg-zinc-50 dark:border-zinc-800 dark:bg-zinc-950 dark:text-zinc-50 dark:hover:bg-black"
-              >
-                Back
-              </button>
-            </div>
-          </div>
-
-          {error ? (
-            <div className="mt-6 rounded-xl border border-red-200 bg-red-50 p-4 text-sm text-red-700 dark:border-red-900/50 dark:bg-red-950/30 dark:text-red-200">
-              <div className="font-medium">Error</div>
-              <div className="mt-1">{error}</div>
-            </div>
-          ) : null}
-
+          {error ? <ErrorBanner title="Error" message={error} /> : null}
           {onchainError ? (
-            <div className="mt-6 rounded-xl border border-red-200 bg-red-50 p-4 text-sm text-red-700 dark:border-red-900/50 dark:bg-red-950/30 dark:text-red-200">
-              <div className="font-medium">On-chain Error</div>
-              <div className="mt-1">{onchainError}</div>
-            </div>
+            <ErrorBanner title="On-chain Error" message={onchainError} />
           ) : null}
-
           {uiError ? (
-            <div className="mt-6 rounded-xl border border-red-200 bg-red-50 p-4 text-sm text-red-700 dark:border-red-900/50 dark:bg-red-950/30 dark:text-red-200">
-              <div className="font-medium">Action Error</div>
-              <div className="mt-1 break-words">{uiError}</div>
-            </div>
+            <ErrorBanner title="Action Error" message={uiError} />
           ) : null}
+          {uiOk ? <OkBanner title="OK" message={uiOk} /> : null}
 
-          {uiOk ? (
-            <div className="mt-6 rounded-xl border border-emerald-200 bg-emerald-50 p-4 text-sm text-emerald-800 dark:border-emerald-900/50 dark:bg-emerald-950/30 dark:text-emerald-200">
-              <div className="font-medium">OK</div>
-              <div className="mt-1 break-words">{uiOk}</div>
-            </div>
-          ) : null}
+          <StatusCards
+            isOnchainLoading={isOnchainLoading}
+            phase={phase}
+            provider={provider}
+            tz={tz}
+          />
 
-          <div className="mt-6 grid gap-4 sm:grid-cols-3">
-            <div className="rounded-xl border border-zinc-200 p-4 dark:border-zinc-800">
-              <div className="text-xs text-zinc-500 dark:text-zinc-400">
-                Phase
-              </div>
-              <div className="mt-1 text-sm font-medium text-zinc-900 dark:text-zinc-50">
-                {isOnchainLoading ? "Loading…" : phase}
-              </div>
-            </div>
-
-            <div className="rounded-xl border border-zinc-200 p-4 dark:border-zinc-800">
-              <div className="text-xs text-zinc-500 dark:text-zinc-400">
-                Joined
-              </div>
-              <div className="mt-1 text-sm font-medium text-zinc-900 dark:text-zinc-50">
-                {provider?.joined
-                  ? "Yes"
-                  : isOnchainLoading
-                    ? "Loading…"
-                    : "No"}
-              </div>
-            </div>
-
-            <div className="rounded-xl border border-zinc-200 p-4 dark:border-zinc-800">
-              <div className="text-xs text-zinc-500 dark:text-zinc-400">
-                Commits / Reveals
-              </div>
-              <div className="mt-1 text-sm font-medium text-zinc-900 dark:text-zinc-50">
-                {provider
-                  ? `${provider.commitCount.toString()} / ${provider.revealedCount.toString()}`
-                  : isOnchainLoading
-                    ? "Loading…"
-                    : "—"}
-              </div>
-            </div>
-          </div>
-
-          <div className="mt-4 flex flex-wrap items-center gap-2">
-            <button
-              onClick={loadOnchain}
-              disabled={isOnchainLoading}
-              className="inline-flex h-9 items-center justify-center rounded-xl border border-zinc-200 bg-white px-4 text-sm font-medium text-zinc-900 transition hover:bg-zinc-50 disabled:opacity-60 dark:border-zinc-800 dark:bg-zinc-950 dark:text-zinc-50 dark:hover:bg-black"
-            >
-              {isOnchainLoading ? "Refreshing…" : "Refresh On-chain"}
-            </button>
-
-            <button
-              onClick={onJoin}
-              disabled={!canJoin || isSubmitting}
-              className="inline-flex h-9 items-center justify-center rounded-xl bg-zinc-900 px-4 text-sm font-medium text-white transition hover:bg-zinc-800 disabled:opacity-60 dark:bg-zinc-50 dark:text-zinc-900 dark:hover:bg-zinc-200"
-            >
-              {isSubmitting ? "Working…" : "Join (Bond)"}
-            </button>
-
-            <button
-              onClick={onRevealLatest}
-              disabled={!canReveal || isSubmitting}
-              className="inline-flex h-9 items-center justify-center rounded-xl border border-zinc-200 bg-white px-4 text-sm font-medium text-zinc-900 transition hover:bg-zinc-50 disabled:opacity-60 dark:border-zinc-800 dark:bg-zinc-950 dark:text-zinc-50 dark:hover:bg-black"
-            >
-              {isSubmitting ? "Working…" : "Reveal Latest"}
-            </button>
-
-            <div className="ml-auto text-xs text-zinc-500 dark:text-zinc-400">
-              Display Time Zone: <span className="font-mono">{tz}</span>
-            </div>
-          </div>
+          <ActionBar
+            isOnchainLoading={isOnchainLoading}
+            isSubmitting={isSubmitting}
+            canJoin={canJoin}
+            canReveal={canReveal}
+            onRefreshOnchain={loadOnchain}
+            onJoin={onJoin}
+            onRevealLatest={onRevealLatest}
+          />
 
           <PredictionsTable
             flights={flights}
