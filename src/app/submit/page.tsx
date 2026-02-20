@@ -6,12 +6,15 @@ import { useRouter } from "next/navigation";
 import {
   useAccount,
   useBalance,
+  useChainId,
   useConnect,
   useDisconnect,
   useReadContract,
   useSwitchChain,
+  usePublicClient,
+  useWalletClient,
 } from "wagmi";
-import { formatUnits, type Address } from "viem";
+import { formatUnits, parseUnits, type Address } from "viem";
 
 const ADI_TESTNET_CHAIN_ID = 99999;
 
@@ -36,6 +39,16 @@ const ERC20_ABI = [
     stateMutability: "view",
     inputs: [],
     outputs: [{ name: "", type: "string" }],
+  },
+  {
+    type: "function",
+    name: "mint",
+    stateMutability: "nonpayable",
+    inputs: [
+      { name: "to", type: "address" },
+      { name: "amount", type: "uint256" },
+    ],
+    outputs: [],
   },
 ] as const;
 
@@ -70,11 +83,22 @@ export default function SubmitHomePage() {
   const router = useRouter();
 
   const { address, isConnected } = useAccount();
+  const chainId = useChainId();
   const { connectAsync, connectors } = useConnect();
   const { disconnect } = useDisconnect();
   const { switchChainAsync } = useSwitchChain();
 
+  const publicClient = usePublicClient({ chainId: ADI_TESTNET_CHAIN_ID });
+  const { data: walletClient } = useWalletClient({
+    chainId: ADI_TESTNET_CHAIN_ID,
+  });
+
   const [walletError, setWalletError] = useState<string | null>(null);
+
+  const [mintBusy, setMintBusy] = useState(false);
+  const [mintStatus, setMintStatus] = useState<string | null>(null);
+  const [mintErr, setMintErr] = useState<string | null>(null);
+  const [mintTxHash, setMintTxHash] = useState<string | null>(null);
 
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
@@ -129,6 +153,68 @@ export default function SubmitHomePage() {
     const n = Number(formatUnits(adiBal.value, adiBal.decimals));
     return fmtFixed(n, 4);
   }, [adiBal]);
+
+  async function ensureAdiChain() {
+    if (chainId !== ADI_TESTNET_CHAIN_ID) {
+      await switchChainAsync({ chainId: ADI_TESTNET_CHAIN_ID });
+    }
+  }
+
+  async function mintViaWagmi() {
+    setMintErr(null);
+    setMintTxHash(null);
+
+    if (!addr) {
+      setMintErr("Connect your wallet first.");
+      return;
+    }
+
+    try {
+      setMintBusy(true);
+      setMintStatus("Switching to ADI Testnet…");
+      await ensureAdiChain();
+
+      if (!publicClient) {
+        setMintErr("No publicClient for ADI Testnet (99999).");
+        setMintStatus(null);
+        return;
+      }
+
+      if (!walletClient) {
+        setMintErr(
+          "No walletClient for ADI Testnet (99999). Disconnect/reconnect after switching.",
+        );
+        setMintStatus(null);
+        return;
+      }
+
+      const amt = parseUnits("1000", usdcDecimals);
+
+      setMintStatus("Preparing transaction…");
+      const { request } = await publicClient.simulateContract({
+        address: MOCK_USDC,
+        abi: ERC20_ABI,
+        functionName: "mint",
+        args: [addr, amt],
+        account: addr,
+      });
+
+      setMintStatus("Waiting for MetaMask…");
+      const hash = await walletClient.writeContract(request);
+
+      setMintTxHash(hash);
+      setMintStatus("Submitted. Waiting for confirmation…");
+      await publicClient.waitForTransactionReceipt({ hash });
+
+      setMintStatus("Confirmed.");
+      setTimeout(() => setMintStatus(null), 1500);
+    } catch (e: any) {
+      setMintErr(e?.shortMessage ?? e?.message ?? "Mint failed");
+      setMintStatus(null);
+    } finally {
+      setMintBusy(false);
+    }
+  }
 
   async function ensureWalletReady() {
     setWalletError(null);
@@ -227,6 +313,14 @@ export default function SubmitHomePage() {
                   >
                     Disconnect
                   </button>
+
+                  <button
+                    onClick={mintViaWagmi}
+                    disabled={mintBusy}
+                    className="inline-flex h-9 items-center justify-center rounded-full border border-zinc-200 bg-white px-4 text-xs font-medium text-zinc-900 transition hover:bg-zinc-50 disabled:opacity-60 dark:border-zinc-800 dark:bg-zinc-950 dark:text-zinc-50 dark:hover:bg-black"
+                  >
+                    {mintBusy ? "Working…" : "Mint"}
+                  </button>
                 </>
               ) : (
                 <button
@@ -260,6 +354,23 @@ export default function SubmitHomePage() {
             <div className="mt-6 rounded-xl border border-red-200 bg-red-50 p-4 text-sm text-red-700 dark:border-red-900/50 dark:bg-red-950/30 dark:text-red-200">
               <div className="font-medium">Wallet Error</div>
               <div className="mt-1 break-words">{walletError}</div>
+            </div>
+          ) : null}
+
+          {isConnected && mintErr ? (
+            <div className="mt-4 rounded-xl border border-red-200 bg-red-50 p-3 text-xs text-red-700 dark:border-red-900/50 dark:bg-red-950/30 dark:text-red-200">
+              {mintErr}
+            </div>
+          ) : null}
+
+          {isConnected && mintStatus ? (
+            <div className="mt-3 rounded-xl border border-zinc-200 bg-white p-3 text-xs text-zinc-700 dark:border-zinc-800 dark:bg-zinc-950 dark:text-zinc-200">
+              {mintStatus}
+              {mintTxHash ? (
+                <div className="mt-2 font-mono break-words text-[11px] text-zinc-500 dark:text-zinc-400">
+                  {mintTxHash}
+                </div>
+              ) : null}
             </div>
           ) : null}
 
