@@ -115,6 +115,7 @@ contract CalibraVault {
         emit BatchRegistered(batchIdHash, funder);
     }
 
+    // Funder deposits directly
     function depositBounty(bytes32 batchIdHash, uint256 amount) external {
         BatchFunds storage bf = batchFunds[batchIdHash];
         require(bf.funder != address(0), "Not registered");
@@ -129,6 +130,25 @@ contract CalibraVault {
         require(ok, "USDC transferFrom failed");
 
         emit BountyDeposited(batchIdHash, msg.sender, amount);
+    }
+
+    // Controller deposits on behalf of funder (funder must approve Vault first)
+    function depositBountyFromFunder(
+        bytes32 batchIdHash,
+        uint256 amount
+    ) external onlyController {
+        BatchFunds storage bf = batchFunds[batchIdHash];
+        require(bf.funder != address(0), "Not registered");
+        require(!bf.bountyDeposited, "Already deposited");
+        require(amount > 0, "Bad amount");
+
+        bf.bounty = amount;
+        bf.bountyDeposited = true;
+
+        bool ok = usdc.transferFrom(bf.funder, address(this), amount);
+        require(ok, "USDC transferFrom failed");
+
+        emit BountyDeposited(batchIdHash, bf.funder, amount);
     }
 
     // Controller locks a provider bond (sqrt(bounty) computed in controller)
@@ -174,6 +194,7 @@ contract CalibraVault {
         for (uint256 i = 0; i < providers.length; i++) {
             address p = providers[i];
             require(p != address(0), "Bad provider");
+            require(payoutOf[batchIdHash][p] == 0, "Duplicate provider");
             payoutOf[batchIdHash][p] = payouts[i];
         }
 
