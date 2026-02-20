@@ -619,6 +619,22 @@ export default function SubmitBatchPage() {
 
       await publicClient.waitForTransactionReceipt({ hash: joinHash });
 
+      const joinedBefore = provider?.joined === true;
+      const addrLower = (addr ?? "").toLowerCase();
+
+      try {
+        if (!joinedBefore && addrLower) {
+          await fetch("/api/batches/increment-bonded-model-count", {
+            method: "POST",
+            headers: { "content-type": "application/json" },
+            body: JSON.stringify({
+              batchId,
+              providerAddress: addrLower,
+            }),
+          });
+        }
+      } catch {}
+
       setUiOk("Joined. You can now submit during the prediction window.");
       await loadOnchain();
     } catch (e: any) {
