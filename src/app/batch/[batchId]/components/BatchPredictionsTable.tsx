@@ -107,20 +107,6 @@ function rowProviderAddress(p: BatchPredictionRow) {
   return typeof v === "string" && v.trim() ? v.trim().toLowerCase() : "—";
 }
 
-function rowOutcome(p: BatchPredictionRow) {
-  const anyP = p as any;
-  const v = anyP?.outcome as unknown;
-  return typeof v === "string" && v.trim() ? v.trim() : "—";
-}
-
-function rowConfidence(p: BatchPredictionRow) {
-  const anyP = p as any;
-  const v = anyP?.confidence as unknown;
-  if (typeof v !== "number" || !Number.isFinite(v)) return "—";
-  const clamped = Math.max(0, Math.min(1, v));
-  return clamped.toFixed(4);
-}
-
 function sortNewestFirst(a: BatchPredictionRow, b: BatchPredictionRow) {
   const aMs = a.created_at ? new Date(a.created_at).getTime() : -1;
   const bMs = b.created_at ? new Date(b.created_at).getTime() : -1;
@@ -353,12 +339,6 @@ export default function BatchPredictionsTable({
                                   <th className="py-1 pr-3 font-medium whitespace-nowrap">
                                     Submitted At
                                   </th>
-                                  <th className="py-1 pr-3 font-medium whitespace-nowrap">
-                                    Outcome
-                                  </th>
-                                  <th className="py-1 pr-3 font-medium whitespace-nowrap">
-                                    Confidence
-                                  </th>
                                   {columns.map((label) => (
                                     <th
                                       key={`sub:${label}`}
@@ -382,12 +362,6 @@ export default function BatchPredictionsTable({
                                     </td>
                                     <td className="py-1 pr-3 whitespace-nowrap">
                                       {fmtIso(sp.created_at)}
-                                    </td>
-                                    <td className="py-1 pr-3 whitespace-nowrap">
-                                      {rowOutcome(sp)}
-                                    </td>
-                                    <td className="py-1 pr-3 whitespace-nowrap">
-                                      {rowConfidence(sp)}
                                     </td>
                                     {columns.map((label) => {
                                       const v = pickProb(
