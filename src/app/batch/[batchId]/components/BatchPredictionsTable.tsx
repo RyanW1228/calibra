@@ -26,7 +26,11 @@ function pickLatestPrediction(
 
 function pctOrDash(v: unknown) {
   if (typeof v !== "number" || !Number.isFinite(v)) return "—";
-  const p = Math.max(0, Math.min(1, v)) * 100;
+
+  // Accept either 0–1 (fraction) or 0–100 (percent)
+  const percent = v <= 1 ? v * 100 : v;
+  const p = Math.max(0, Math.min(100, percent));
+
   return `${p.toFixed(1)}%`;
 }
 
@@ -49,10 +53,10 @@ function buildPartitionLabels(thresholdsMinutes: number[] | null | undefined) {
   labels.push(`<=${t[0]} min`);
 
   for (let i = 1; i < t.length; i += 1) {
-    labels.push(`${t[i - 1]}-${t[i]} min`);
+    labels.push(`>${t[i - 1]} and <=${t[i]} min`);
   }
 
-  labels.push(`${t[t.length - 1]}+ min`);
+  labels.push(`>${t[t.length - 1]} min`);
   labels.push("Cancelled");
   return labels;
 }
