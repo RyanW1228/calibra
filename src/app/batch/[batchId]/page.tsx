@@ -35,6 +35,9 @@ type BatchGetResponse =
         prediction_window_start_at?: string | null;
         prediction_window_end_at?: string | null;
 
+        bounty_usdc?: number | null;
+        bonded_model_count?: number | null;
+
         bounty_amount?: number | null;
         bounty_amount_usdc?: number | null;
         bounty_amount_base_units?: string | number | null;
@@ -160,6 +163,7 @@ function fmtMoney(n: number | null | undefined, symbol: string) {
 function pickCompetitorCount(batch: BatchInfo | null) {
   if (!batch) return null;
   const candidates = [
+    batch.bonded_model_count,
     batch.bond_paid_count,
     batch.competitor_count,
     batch.models_joined_count,
@@ -172,7 +176,11 @@ function pickCompetitorCount(batch: BatchInfo | null) {
 
 function pickBountyAmountUsd(batch: BatchInfo | null) {
   if (!batch) return null;
-  const candidates = [batch.bounty_amount_usdc, batch.bounty_amount];
+  const candidates = [
+    batch.bounty_usdc,
+    batch.bounty_amount_usdc,
+    batch.bounty_amount,
+  ];
   for (const x of candidates) {
     if (typeof x === "number" && Number.isFinite(x) && x >= 0) return x;
   }

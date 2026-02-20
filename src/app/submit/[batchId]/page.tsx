@@ -530,16 +530,26 @@ export default function SubmitBatchPage() {
     publicClient,
   });
 
-  async function ensureWalletReady() {
+  async function ensureWalletReady(): Promise<Address> {
+    let activeAddress = addr;
+
     if (!isConnected) {
       const connector = connectors[0];
       if (!connector) throw new Error("No wallet connector available");
-      await connectAsync({ connector });
+
+      const res = await connectAsync({ connector });
+      const first = Array.isArray(res.accounts) ? res.accounts[0] : null;
+
+      if (!first) throw new Error("Wallet connected but no account returned");
+      activeAddress = first as Address;
     }
 
     if (chainId !== ADI_TESTNET_CHAIN_ID) {
       await switchChainAsync({ chainId: ADI_TESTNET_CHAIN_ID });
     }
+
+    if (!activeAddress) throw new Error("Wallet not connected");
+    return activeAddress;
   }
 
   async function ensureAllowanceAtLeast(required: bigint) {
@@ -600,8 +610,7 @@ export default function SubmitBatchPage() {
       if (!batchIdHash) throw new Error("Missing batchIdHash");
       if (!publicClient) throw new Error("No public client");
 
-      await ensureWalletReady();
-
+      const activeAddr = await ensureWalletReady();
       const b = onchainBatch;
       if (!b?.exists) throw new Error("Batch not loaded");
       if (!b.funded) throw new Error("Batch is not funded");
@@ -620,20 +629,35 @@ export default function SubmitBatchPage() {
       await publicClient.waitForTransactionReceipt({ hash: joinHash });
 
       const joinedBefore = provider?.joined === true;
-      const addrLower = (addr ?? "").toLowerCase();
+      const addrLower = activeAddr.toLowerCase();
 
       try {
-        if (!joinedBefore && addrLower) {
-          await fetch("/api/batches/increment-bonded-model-count", {
-            method: "POST",
-            headers: { "content-type": "application/json" },
-            body: JSON.stringify({
-              batchId,
-              providerAddress: addrLower,
-            }),
-          });
+        if (!joinedBefore) {
+          const incRes = await fetch(
+            "/api/batches/increment-bonded-model-count",
+            {
+              method: "POST",
+              headers: { "content-type": "application/json" },
+              body: JSON.stringify({
+                batchId,
+                providerAddress: addrLower,
+              }),
+            },
+          );
+
+          const incJson = await safeJson(incRes);
+
+          if (!incRes.ok || !incJson?.ok) {
+            throw new Error(
+              (
+                incJson?.error ?? "Failed to increment bonded_model_count"
+              ).toString(),
+            );
+          }
         }
-      } catch {}
+      } catch (e: any) {
+        setUiError(e?.message ?? "Failed to increment bonded_model_count");
+      }
 
       setUiOk("Joined. You can now submit during the prediction window.");
       await loadOnchain();

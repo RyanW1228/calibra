@@ -80,10 +80,8 @@ contract MockUSDC {
         return true;
     }
 
-    function mint(
-        address to,
-        uint256 amount
-    ) external onlyOwner returns (bool) {
+    // Open mint: anyone can mint (dev/test only)
+    function mint(address to, uint256 amount) external returns (bool) {
         require(to != address(0), "Bad to");
         totalSupply += amount;
         unchecked {
