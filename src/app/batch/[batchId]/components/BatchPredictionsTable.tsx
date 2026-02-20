@@ -26,11 +26,7 @@ function pickLatestPrediction(
 
 function pctOrDash(v: unknown) {
   if (typeof v !== "number" || !Number.isFinite(v)) return "—";
-
-  // Accept either 0–1 (fraction) or 0–100 (percent)
-  const percent = v <= 1 ? v * 100 : v;
-  const p = Math.max(0, Math.min(100, percent));
-
+  const p = Math.max(0, Math.min(100, v)); // values are already 0–100
   return `${p.toFixed(1)}%`;
 }
 
