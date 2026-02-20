@@ -614,18 +614,6 @@ export default function BatchPage() {
               >
                 Back
               </button>
-
-              <button
-                onClick={loadFunderSubmissions}
-                disabled={funderSubsLoading}
-                className="inline-flex h-9 items-center justify-center rounded-full border border-zinc-200 bg-white px-4 text-xs font-medium text-zinc-900 transition hover:bg-zinc-50 disabled:opacity-60 dark:border-zinc-800 dark:bg-zinc-950 dark:text-zinc-50 dark:hover:bg-black"
-              >
-                {funderSubsLoading
-                  ? "Loading…"
-                  : isConnected
-                    ? "Refresh Funder Submissions"
-                    : "Connect + Load Submissions"}
-              </button>
             </div>
           </div>
 
@@ -744,6 +732,18 @@ export default function BatchPage() {
                 <div className="text-sm font-semibold text-zinc-900 dark:text-zinc-50">
                   Prediction Probabilities
                 </div>
+
+                <button
+                  onClick={loadFunderSubmissions}
+                  disabled={funderSubsLoading}
+                  className="inline-flex h-9 items-center justify-center rounded-full border border-zinc-200 bg-white px-4 text-xs font-medium text-zinc-900 transition hover:bg-zinc-50 disabled:opacity-60 dark:border-zinc-800 dark:bg-zinc-950 dark:text-zinc-50 dark:hover:bg-black"
+                >
+                  {funderSubsLoading
+                    ? "Loading…"
+                    : isConnected
+                      ? "Refresh Submissions"
+                      : "Connect + Load Submissions"}
+                </button>
               </div>
 
               <BatchPredictionsTable
