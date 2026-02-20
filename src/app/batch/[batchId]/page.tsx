@@ -5,13 +5,15 @@ import React, { useEffect, useMemo, useState } from "react";
 import { useParams, useRouter } from "next/navigation";
 import {
   useAccount,
+  useBalance,
   useChainId,
   useConnect,
   useDisconnect,
+  useReadContract,
   useSignMessage,
   useSwitchChain,
 } from "wagmi";
-import { type Address, type Hex } from "viem";
+import { formatUnits, type Address, type Hex } from "viem";
 import { ADI_TESTNET_CHAIN_ID, batchIdToHash } from "@/lib/calibraOnchain";
 import BatchFlightsTable, {
   type BatchFlightRow,
@@ -108,6 +110,36 @@ function fmtCountdown(ms: number) {
 
 const UPDATE_COOLDOWN_MS = 30_000;
 
+const ERC20_ABI = [
+  {
+    type: "function",
+    name: "balanceOf",
+    stateMutability: "view",
+    inputs: [{ name: "account", type: "address" }],
+    outputs: [{ name: "", type: "uint256" }],
+  },
+  {
+    type: "function",
+    name: "decimals",
+    stateMutability: "view",
+    inputs: [],
+    outputs: [{ name: "", type: "uint8" }],
+  },
+  {
+    type: "function",
+    name: "symbol",
+    stateMutability: "view",
+    inputs: [],
+    outputs: [{ name: "", type: "string" }],
+  },
+] as const;
+
+const MOCK_USDC = "0x4fA65A338618FA771bA11eb37892641cBD055f98" as Address;
+
+function fmtFixed(n: number, decimals: number) {
+  if (!Number.isFinite(n)) return "—";
+  return n.toFixed(decimals);
+}
 function buildThresholdColumns(thresholds: number[] | null | undefined) {
   const raw = Array.isArray(thresholds) ? thresholds : [];
   const cleaned = raw
@@ -169,6 +201,56 @@ export default function BatchPage() {
   const [predictions, setPredictions] = useState<PredictionRow[]>([]);
   const { address, isConnected } = useAccount();
   const chainId = useChainId();
+
+  const addr = useMemo(() => {
+    if (!address) return undefined;
+    if (!address.startsWith("0x")) return undefined;
+    return address as Address;
+  }, [address]);
+
+  const { data: usdcSymbol } = useReadContract({
+    address: MOCK_USDC,
+    abi: ERC20_ABI,
+    functionName: "symbol",
+    query: { enabled: true },
+  });
+
+  const { data: usdcDecimalsRaw } = useReadContract({
+    address: MOCK_USDC,
+    abi: ERC20_ABI,
+    functionName: "decimals",
+    query: { enabled: true },
+  });
+
+  const usdcDecimals = useMemo(() => {
+    const n = Number(usdcDecimalsRaw ?? 6);
+    return Number.isFinite(n) ? n : 6;
+  }, [usdcDecimalsRaw]);
+
+  const { data: usdcBalRaw } = useReadContract({
+    address: MOCK_USDC,
+    abi: ERC20_ABI,
+    functionName: "balanceOf",
+    args: addr ? [addr] : undefined,
+    query: { enabled: !!addr },
+  });
+
+  const { data: adiBal } = useBalance({
+    address: addr,
+    query: { enabled: !!addr },
+  });
+
+  const usdcFormatted = useMemo(() => {
+    if (typeof usdcBalRaw !== "bigint") return "—";
+    const n = Number(formatUnits(usdcBalRaw, usdcDecimals));
+    return fmtFixed(n, 2);
+  }, [usdcBalRaw, usdcDecimals]);
+
+  const adiFormatted = useMemo(() => {
+    if (!adiBal) return "—";
+    const n = Number(formatUnits(adiBal.value, adiBal.decimals));
+    return fmtFixed(n, 4);
+  }, [adiBal]);
   const { connectAsync, connectors } = useConnect();
   const { disconnect } = useDisconnect();
   const { signMessageAsync } = useSignMessage();
@@ -613,7 +695,26 @@ export default function BatchPage() {
               </div>
             </div>
 
-            <div className="flex items-center gap-2">
+            <div className="flex items-center gap-3">
+              {isConnected && addr ? (
+                <div className="flex flex-col items-end gap-1">
+                  <div className="text-[11px] text-zinc-500 dark:text-zinc-400">
+                    <span className="font-mono">
+                      {addr.slice(0, 6)}…{addr.slice(-4)}
+                    </span>
+                  </div>
+
+                  <div className="text-[11px] text-zinc-500 dark:text-zinc-400">
+                    ADI: {adiFormatted}
+                  </div>
+
+                  <div className="text-[11px] text-zinc-500 dark:text-zinc-400">
+                    USDC: {usdcFormatted}{" "}
+                    {typeof usdcSymbol === "string" ? usdcSymbol : ""}
+                  </div>
+                </div>
+              ) : null}
+
               <button
                 onClick={() => router.push("/")}
                 className="inline-flex h-9 items-center justify-center rounded-full border border-zinc-200 bg-white px-4 text-xs font-medium text-zinc-900 transition hover:bg-zinc-50 dark:border-zinc-800 dark:bg-zinc-950 dark:text-zinc-50 dark:hover:bg-black"
