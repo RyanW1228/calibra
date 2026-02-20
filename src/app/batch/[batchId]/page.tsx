@@ -712,9 +712,6 @@ export default function BatchPage() {
                 <div className="text-sm font-semibold text-zinc-900 dark:text-zinc-50">
                   Flights
                 </div>
-                <div className="text-xs text-zinc-500 dark:text-zinc-400">
-                  <span className="font-mono">{updateMetaText}</span>
-                </div>
               </div>
 
               <div className="flex items-center gap-2 sm:justify-end">
@@ -743,15 +740,6 @@ export default function BatchPage() {
                 <div className="flex flex-col gap-1">
                   <div className="text-sm font-semibold text-zinc-900 dark:text-zinc-50">
                     Predictions
-                  </div>
-                  <div className="text-xs text-zinc-500 dark:text-zinc-400">
-                    <span className="font-mono">
-                      {typeof lastUpdateMs === "number"
-                        ? nowMs < nextAllowedMs
-                          ? `Next refresh in ${Math.ceil((nextAllowedMs - nowMs) / 1000)}s`
-                          : `Last refresh: ${fmtIsoLocal(new Date(lastUpdateMs).toISOString())}`
-                        : " "}
-                    </span>{" "}
                   </div>
                 </div>
 
