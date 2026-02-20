@@ -53,8 +53,8 @@ type BatchInfo = Extract<BatchGetResponse, { ok: true }>["batch"];
 const ADI_TESTNET_CHAIN_ID = 99999;
 
 const MOCK_USDC = "0x4fA65A338618FA771bA11eb37892641cBD055f98" as Address;
-const CALIBRA_BATCHES = "0xCDBc322c04D15068f7B6EAD5e32D73d5429cA7ad" as Address;
-
+const CALIBRA_PROTOCOL =
+  "0x2efe9ae023241Df74A1A79d64b8CA3acfC9d7a25" as Address;
 const USDC_ABI = [
   {
     type: "function",
@@ -68,7 +68,7 @@ const USDC_ABI = [
   },
 ] as const;
 
-const CALIBRA_BATCHES_ABI = [
+const CALIBRA_PROTOCOL_ABI = [
   {
     type: "function",
     name: "fundBatch",
@@ -391,15 +391,15 @@ export default function FundBatchPage() {
         address: MOCK_USDC,
         abi: USDC_ABI,
         functionName: "approve",
-        args: [CALIBRA_BATCHES, amount],
+        args: [CALIBRA_PROTOCOL, amount],
         chainId: ADI_TESTNET_CHAIN_ID,
       });
 
       await publicClient.waitForTransactionReceipt({ hash: approveHash });
 
       const fundHash = await writeContractAsync({
-        address: CALIBRA_BATCHES,
-        abi: CALIBRA_BATCHES_ABI,
+        address: CALIBRA_PROTOCOL,
+        abi: CALIBRA_PROTOCOL_ABI,
         functionName: "fundBatch",
         args: [
           batchIdHash,
