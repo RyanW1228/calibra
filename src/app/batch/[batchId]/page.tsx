@@ -54,17 +54,6 @@ type PredictionsResponse =
   | { ok: true; predictions: PredictionRow[] }
   | { ok: false; error: string; details?: unknown };
 
-type CantonSubmissionRow = {
-  contract_id: string;
-  submitter: string;
-  submitted_at_iso: string;
-  probabilities_json: string;
-};
-
-type CantonSubmissionsResponse =
-  | { ok: true; submissions: CantonSubmissionRow[] }
-  | { ok: false; error: string; details?: unknown };
-
 type RefreshFlightsResponse =
   | {
       ok: true;
@@ -198,12 +187,6 @@ export default function BatchPage() {
     }[]
   >([]);
 
-  const [cantonLoading, setCantonLoading] = useState(false);
-  const [cantonError, setCantonError] = useState<string | null>(null);
-  const [cantonSubmissions, setCantonSubmissions] = useState<
-    CantonSubmissionRow[]
-  >([]);
-
   const [updateLoading, setUpdateLoading] = useState(false);
   const [updateError, setUpdateError] = useState<string | null>(null);
   const [lastUpdateMs, setLastUpdateMs] = useState<number | null>(null);
@@ -305,43 +288,6 @@ export default function BatchPage() {
       setPredError(e?.message ?? "Failed to load predictions");
     } finally {
       setPredLoading(false);
-    }
-  }
-
-  async function loadCantonSubmissions() {
-    if (!batchId) return;
-
-    setCantonLoading(true);
-    setCantonError(null);
-
-    try {
-      const res = await fetch(
-        `/api/canton/predictions/list?batchId=${encodeURIComponent(batchId)}`,
-        { method: "GET", cache: "no-store" },
-      );
-
-      if (res.status === 404) {
-        setCantonSubmissions([]);
-        setCantonError("Canton predictions endpoint is not wired yet.");
-        return;
-      }
-
-      const json = (await res.json()) as CantonSubmissionsResponse;
-
-      if (!res.ok || !json.ok) {
-        setCantonSubmissions([]);
-        setCantonError(json.ok ? "Request failed" : json.error);
-        return;
-      }
-
-      setCantonSubmissions(
-        Array.isArray(json.submissions) ? json.submissions : [],
-      );
-    } catch (e: any) {
-      setCantonSubmissions([]);
-      setCantonError(e?.message ?? "Failed to load Canton submissions");
-    } finally {
-      setCantonLoading(false);
     }
   }
 
@@ -486,7 +432,6 @@ export default function BatchPage() {
 
   useEffect(() => {
     loadPredictions();
-    loadCantonSubmissions();
   }, [batchId]);
 
   async function handleUpdate() {
@@ -547,11 +492,7 @@ export default function BatchPage() {
       setLastUpdateMs(t);
       writeLastUpdateMs(batchId, t);
 
-      await Promise.all([
-        loadBatchEnriched(),
-        loadPredictions(),
-        loadCantonSubmissions(),
-      ]);
+      await Promise.all([loadBatchEnriched(), loadPredictions()]);
     } catch (e: any) {
       setUpdateError(e?.message ?? "Update failed");
     } finally {
@@ -646,11 +587,7 @@ export default function BatchPage() {
     typeof lastUpdateMs === "number" ? lastUpdateMs + UPDATE_COOLDOWN_MS : 0;
 
   const updateDisabled =
-    isLoading ||
-    predLoading ||
-    cantonLoading ||
-    updateLoading ||
-    nowMs < nextAllowedMs;
+    isLoading || predLoading || updateLoading || nowMs < nextAllowedMs;
 
   const updateMetaText =
     typeof lastUpdateMs === "number"
@@ -679,14 +616,6 @@ export default function BatchPage() {
                 className="inline-flex h-9 items-center justify-center rounded-full border border-zinc-200 bg-white px-4 text-xs font-medium text-zinc-900 transition hover:bg-zinc-50 dark:border-zinc-800 dark:bg-zinc-950 dark:text-zinc-50 dark:hover:bg-black"
               >
                 Back
-              </button>
-
-              <button
-                onClick={loadPredictions}
-                disabled={predLoading}
-                className="inline-flex h-9 items-center justify-center rounded-full border border-zinc-200 bg-white px-4 text-xs font-medium text-zinc-900 transition hover:bg-zinc-50 disabled:opacity-60 dark:border-zinc-800 dark:bg-zinc-950 dark:text-zinc-50 dark:hover:bg-black"
-              >
-                {predLoading ? "Loading…" : "Refresh ADI Predictions"}
               </button>
 
               <button
@@ -840,62 +769,6 @@ export default function BatchPage() {
                 isLoading={isLoading || predLoading}
                 thresholdsMinutes={batch?.thresholds_minutes ?? null}
               />
-            </div>
-
-            <div className="mt-10">
-              <div className="flex items-center justify-between gap-3">
-                <div className="text-sm font-semibold text-zinc-900 dark:text-zinc-50">
-                  Canton Prediction Submissions
-                </div>
-                <div className="text-xs text-zinc-500 dark:text-zinc-400">
-                  {cantonLoading
-                    ? "Loading…"
-                    : `${cantonSubmissions.length} submissions`}
-                </div>
-              </div>
-
-              <div className="mt-4 overflow-hidden rounded-xl border border-zinc-200 dark:border-zinc-800">
-                <div className="grid grid-cols-12 gap-0 border-b border-zinc-200 bg-zinc-50 px-4 py-2 text-[11px] font-medium text-zinc-600 dark:border-zinc-800 dark:bg-zinc-900/30 dark:text-zinc-300">
-                  <div className="col-span-3">Submitter</div>
-                  <div className="col-span-3">Submitted At</div>
-                  <div className="col-span-6">Probabilities JSON</div>
-                </div>
-
-                {cantonSubmissions.length === 0 ? (
-                  <div className="px-4 py-6 text-sm text-zinc-600 dark:text-zinc-300">
-                    {cantonLoading
-                      ? "Loading…"
-                      : "No Canton submissions yet (or endpoint not wired)."}
-                  </div>
-                ) : (
-                  <div className="divide-y divide-zinc-200 dark:divide-zinc-800">
-                    {cantonSubmissions.map((s) => (
-                      <div
-                        key={s.contract_id}
-                        className="grid grid-cols-12 gap-0 px-4 py-3 text-xs text-zinc-900 dark:text-zinc-50"
-                      >
-                        <div className="col-span-3 font-mono">
-                          {s.submitter}
-                        </div>
-                        <div className="col-span-3 font-mono">
-                          {fmtIsoLocal(s.submitted_at_iso)}
-                        </div>
-                        <div className="col-span-6 font-mono break-words text-zinc-700 dark:text-zinc-200">
-                          {s.probabilities_json}
-                        </div>
-                      </div>
-                    ))}
-                  </div>
-                )}
-              </div>
-
-              <div className="mt-2 text-[11px] text-zinc-500 dark:text-zinc-400">
-                This shows the raw Canton submissions so funders can verify that
-                predictor updates are arriving. Later, judging at random
-                timestamps can be implemented by querying submission history and
-                selecting the latest submission at or before the chosen
-                timestamp.
-              </div>
             </div>
           </div>
         </div>
