@@ -3,10 +3,48 @@
 
 import React, { useEffect, useMemo, useState } from "react";
 import { useRouter } from "next/navigation";
-import { useAccount, useConnect, useDisconnect, useSwitchChain } from "wagmi";
-import type { Address } from "viem";
+import {
+  useAccount,
+  useBalance,
+  useConnect,
+  useDisconnect,
+  useReadContract,
+  useSwitchChain,
+} from "wagmi";
+import { formatUnits, type Address } from "viem";
 
 const ADI_TESTNET_CHAIN_ID = 99999;
+
+const ERC20_ABI = [
+  {
+    type: "function",
+    name: "balanceOf",
+    stateMutability: "view",
+    inputs: [{ name: "account", type: "address" }],
+    outputs: [{ name: "", type: "uint256" }],
+  },
+  {
+    type: "function",
+    name: "decimals",
+    stateMutability: "view",
+    inputs: [],
+    outputs: [{ name: "", type: "uint8" }],
+  },
+  {
+    type: "function",
+    name: "symbol",
+    stateMutability: "view",
+    inputs: [],
+    outputs: [{ name: "", type: "string" }],
+  },
+] as const;
+
+const MOCK_USDC = "0x4fA65A338618FA771bA11eb37892641cBD055f98" as Address;
+
+function fmtFixed(n: number, decimals: number) {
+  if (!Number.isFinite(n)) return "—";
+  return n.toFixed(decimals);
+}
 
 type ActiveBatchRow = {
   id: string;
@@ -43,9 +81,54 @@ export default function SubmitHomePage() {
   const [batches, setBatches] = useState<ActiveBatchRow[]>([]);
 
   const addr = useMemo(() => {
-    if (!address) return null;
+    if (!address) return undefined;
+    if (!address.startsWith("0x")) return undefined;
     return address as Address;
   }, [address]);
+
+  const { data: usdcSymbol } = useReadContract({
+    address: MOCK_USDC,
+    abi: ERC20_ABI,
+    functionName: "symbol",
+    query: { enabled: true },
+  });
+
+  const { data: usdcDecimalsRaw } = useReadContract({
+    address: MOCK_USDC,
+    abi: ERC20_ABI,
+    functionName: "decimals",
+    query: { enabled: true },
+  });
+
+  const usdcDecimals = useMemo(() => {
+    const n = Number(usdcDecimalsRaw ?? 6);
+    return Number.isFinite(n) ? n : 6;
+  }, [usdcDecimalsRaw]);
+
+  const { data: usdcBalRaw } = useReadContract({
+    address: MOCK_USDC,
+    abi: ERC20_ABI,
+    functionName: "balanceOf",
+    args: addr ? [addr] : undefined,
+    query: { enabled: !!addr },
+  });
+
+  const { data: adiBal } = useBalance({
+    address: addr,
+    query: { enabled: !!addr },
+  });
+
+  const usdcFormatted = useMemo(() => {
+    if (typeof usdcBalRaw !== "bigint") return "—";
+    const n = Number(formatUnits(usdcBalRaw, usdcDecimals));
+    return fmtFixed(n, 2);
+  }, [usdcBalRaw, usdcDecimals]);
+
+  const adiFormatted = useMemo(() => {
+    if (!adiBal) return "—";
+    const n = Number(formatUnits(adiBal.value, adiBal.decimals));
+    return fmtFixed(n, 4);
+  }, [adiBal]);
 
   async function ensureWalletReady() {
     setWalletError(null);
@@ -111,7 +194,7 @@ export default function SubmitHomePage() {
             <div className="flex items-center gap-2">
               {isConnected ? (
                 <>
-                  <div className="hidden flex-col items-end gap-1 sm:flex">
+                  <div className="flex flex-col items-end gap-1">
                     <div className="text-[11px] text-zinc-500 dark:text-zinc-400">
                       {addr ? (
                         <span className="font-mono">
@@ -121,6 +204,19 @@ export default function SubmitHomePage() {
                         "Connected"
                       )}
                     </div>
+
+                    {addr ? (
+                      <>
+                        <div className="text-[11px] text-zinc-500 dark:text-zinc-400">
+                          ADI: {adiFormatted}
+                        </div>
+
+                        <div className="text-[11px] text-zinc-500 dark:text-zinc-400">
+                          USDC: {usdcFormatted}{" "}
+                          {typeof usdcSymbol === "string" ? usdcSymbol : ""}
+                        </div>
+                      </>
+                    ) : null}
                   </div>
 
                   <button
