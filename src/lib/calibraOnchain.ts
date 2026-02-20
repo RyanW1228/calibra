@@ -7,7 +7,7 @@ export const CALIBRA_PROTOCOL =
   "0x2efe9ae023241Df74A1A79d64b8CA3acfC9d7a25" as Address;
 
 export const MOCK_USDC =
-  "0x4fA65A338618FA771bA11eb37892641cBD055f98" as Address;
+  "0xa014Dab469Eb138aa0072129458067aCd1688240" as Address;
 
 export function batchIdToHash(batchId: string): Hex {
   return keccak256(toBytes(batchId)) as Hex;
