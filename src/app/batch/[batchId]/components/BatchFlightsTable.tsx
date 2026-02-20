@@ -141,7 +141,7 @@ export default function BatchFlightsTable({
             disabled={Boolean(updateDisabled)}
             className="inline-flex h-8 items-center justify-center rounded-full border border-zinc-200 bg-white px-3 text-xs font-medium text-zinc-900 transition hover:bg-zinc-50 disabled:opacity-60 dark:border-zinc-800 dark:bg-zinc-950 dark:text-zinc-50 dark:hover:bg-black"
           >
-            {updateLabel ? updateLabel : "Update Flights + Predictions"}
+            {updateLabel ? updateLabel : "Update"}
           </button>
         </div>
       ) : null}

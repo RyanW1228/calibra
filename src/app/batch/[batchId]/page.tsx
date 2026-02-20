@@ -270,7 +270,6 @@ export default function BatchPage() {
 
       if (res.status === 404) {
         setPredictions([]);
-        setPredError("Predictions are not wired yet.");
         return;
       }
 
@@ -503,7 +502,6 @@ export default function BatchPage() {
   const predictionRows = useMemo(() => {
     const rows: BatchPredictionRow[] = [];
 
-    // 1) Existing (placeholder) predictions endpoint rows
     for (const p of predictions) {
       rows.push({
         schedule_key: p.schedule_key,
@@ -514,7 +512,6 @@ export default function BatchPage() {
       });
     }
 
-    // 2) Funder-only decrypted submissions -> flatten into per-flight rows
     for (const sub of funderSubsRows) {
       for (const p of sub.predictions) {
         rows.push({
@@ -640,8 +637,9 @@ export default function BatchPage() {
           ) : null}
 
           {predError ? (
-            <div className="mt-6 rounded-xl border border-zinc-200 bg-white p-4 text-sm text-zinc-700 dark:border-zinc-800 dark:bg-zinc-950 dark:text-zinc-200">
-              {predError}
+            <div className="mt-6 rounded-xl border border-red-200 bg-red-50 p-4 text-sm text-red-700 dark:border-red-900/50 dark:bg-red-950/30 dark:text-red-200">
+              <div className="font-medium">Predictions</div>
+              <div className="mt-1">{predError}</div>
             </div>
           ) : null}
 
@@ -657,66 +655,53 @@ export default function BatchPage() {
             </div>
           ) : null}
 
-          <div className="mt-6 grid gap-4 sm:grid-cols-4">
-            <div className="rounded-xl border border-zinc-200 p-4 dark:border-zinc-800">
-              <div className="text-xs text-zinc-500 dark:text-zinc-400">
-                Status
-              </div>
-              <div className="mt-1 text-sm font-medium text-zinc-900 dark:text-zinc-50">
-                {batch?.status ?? (isLoading ? "Loading…" : "—")}
-              </div>
-            </div>
-
-            <div className="rounded-xl border border-zinc-200 p-4 dark:border-zinc-800">
-              <div className="text-xs text-zinc-500 dark:text-zinc-400">
-                Flight Count
-              </div>
-              <div className="mt-1 text-sm font-medium text-zinc-900 dark:text-zinc-50">
-                {typeof batch?.flight_count === "number"
-                  ? batch.flight_count
-                  : isLoading
-                    ? "Loading…"
-                    : "—"}
-              </div>
-            </div>
-
-            <div className="rounded-xl border border-zinc-200 p-4 dark:border-zinc-800">
-              <div className="text-xs text-zinc-500 dark:text-zinc-400">
-                Display Time Zone
-              </div>
-              <div className="mt-1 text-sm font-medium text-zinc-900 dark:text-zinc-50">
-                {tz}
-              </div>
-            </div>
-
-            <div className="rounded-xl border border-zinc-200 p-4 dark:border-zinc-800">
-              <div className="flex items-center justify-between gap-3">
-                <div className="text-xs text-zinc-500 dark:text-zinc-400">
-                  Prediction Window
+          <div className="mt-6 rounded-xl border border-zinc-200 p-4 dark:border-zinc-800">
+            <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
+              <div className="flex flex-col gap-2">
+                <div className="flex items-center gap-2">
+                  <div className="text-xs font-medium uppercase tracking-wide text-zinc-500 dark:text-zinc-400">
+                    Prediction Window
+                  </div>
+                  <div
+                    className={`inline-flex items-center rounded-full border px-2 py-0.5 text-[11px] font-medium ${windowState.badgeClass}`}
+                  >
+                    {windowState.label}
+                  </div>
                 </div>
-                <div
-                  className={`inline-flex items-center rounded-full border px-2 py-0.5 text-[11px] font-medium ${windowState.badgeClass}`}
-                >
-                  {windowState.label}
+
+                <div className="flex flex-col gap-1">
+                  <div className="text-[11px] text-zinc-500 dark:text-zinc-400">
+                    Start:{" "}
+                    <span className="font-mono text-zinc-700 dark:text-zinc-200">
+                      {fmtIsoInTimeZone(windowStartIso, tz)}
+                    </span>
+                  </div>
+                  <div className="text-[11px] text-zinc-500 dark:text-zinc-400">
+                    End:{" "}
+                    <span className="font-mono text-zinc-700 dark:text-zinc-200">
+                      {fmtIsoInTimeZone(windowEndIso, tz)}
+                    </span>
+                  </div>
                 </div>
               </div>
 
-              <div className="mt-2 flex flex-col gap-1">
+              <div className="flex flex-col gap-2 sm:items-end">
                 <div className="text-[11px] text-zinc-500 dark:text-zinc-400">
-                  Start:{" "}
+                  Time Zone:{" "}
                   <span className="font-mono text-zinc-700 dark:text-zinc-200">
-                    {fmtIsoInTimeZone(windowStartIso, tz)}
+                    {tz}
                   </span>
                 </div>
+
                 <div className="text-[11px] text-zinc-500 dark:text-zinc-400">
-                  End:{" "}
-                  <span className="font-mono text-zinc-700 dark:text-zinc-200">
-                    {fmtIsoInTimeZone(windowEndIso, tz)}
+                  Current Time:{" "}
+                  <span className="font-mono font-semibold text-zinc-900 dark:text-zinc-50">
+                    {fmtIsoInTimeZone(new Date(nowMs).toISOString(), tz)}
                   </span>
                 </div>
 
                 {windowState.countdownLabel && windowState.countdownValue ? (
-                  <div className="mt-2 flex items-center justify-between">
+                  <div className="mt-1 flex items-center gap-2 sm:justify-end">
                     <div className="text-xs text-zinc-600 dark:text-zinc-300">
                       {windowState.countdownLabel}
                     </div>
@@ -750,9 +735,7 @@ export default function BatchPage() {
               displayTimeZone={tz}
               onUpdate={handleUpdate}
               updateDisabled={updateDisabled}
-              updateLabel={
-                updateLoading ? "Updating…" : "Update Flights + Predictions"
-              }
+              updateLabel={updateLoading ? "Updating…" : "Update"}
               updateMetaText={updateMetaText}
             />
 
