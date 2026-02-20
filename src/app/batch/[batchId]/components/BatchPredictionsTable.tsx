@@ -117,88 +117,96 @@ export default function BatchPredictionsTable({
 
   const colCount = 1 + columns.length;
 
-  return (
-    <div className="mt-6 overflow-auto rounded-xl border border-zinc-200 dark:border-zinc-800">
-      <div className="flex items-center justify-between gap-3 border-b border-zinc-200 bg-white px-4 py-3 text-xs text-zinc-600 dark:border-zinc-800 dark:bg-zinc-950 dark:text-zinc-400">
-        <div className="font-mono">{refreshMetaText ?? " "}</div>
+  const showRefresh = typeof onRefresh === "function";
 
-        {onRefresh ? (
+  return (
+    <div className="mt-6 overflow-hidden rounded-xl border border-zinc-200 dark:border-zinc-800">
+      {showRefresh ? (
+        <div className="flex items-center justify-between gap-3 border-b border-zinc-200 bg-white px-3 py-2 dark:border-zinc-800 dark:bg-zinc-950">
+          <div className="text-xs text-zinc-600 dark:text-zinc-400">
+            {refreshMetaText ? refreshMetaText : " "}
+          </div>
+
           <button
             onClick={onRefresh}
             disabled={!!refreshDisabled}
-            className="inline-flex h-9 items-center justify-center rounded-full border border-zinc-200 bg-white px-4 text-xs font-medium text-zinc-900 transition hover:bg-zinc-50 disabled:opacity-60 dark:border-zinc-800 dark:bg-zinc-950 dark:text-zinc-50 dark:hover:bg-black"
+            className="inline-flex h-8 items-center justify-center rounded-full border border-zinc-200 bg-white px-3 text-xs font-medium text-zinc-900 transition hover:bg-zinc-50 disabled:opacity-60 dark:border-zinc-800 dark:bg-zinc-950 dark:text-zinc-50 dark:hover:bg-black"
           >
             {refreshLabel ?? "Refresh Submissions"}
           </button>
-        ) : null}
-      </div>
+        </div>
+      ) : null}
 
-      <table className="min-w-[900px] text-left text-sm">
-        <thead className="sticky top-0 z-10 bg-zinc-50 text-xs text-zinc-600 dark:bg-black dark:text-zinc-400">
-          <tr>
-            <th className="px-3 py-2 font-medium whitespace-nowrap">
-              Schedule Key
-            </th>
-            {columns.map((label) => (
-              <th
-                key={label}
-                className="px-3 py-2 font-medium whitespace-nowrap text-right"
-                title={label}
-              >
-                {label}
+      <div className="overflow-auto">
+        <table className="min-w-[900px] text-left text-sm">
+          <thead className="sticky top-0 z-10 bg-zinc-50 text-xs text-zinc-600 dark:bg-black dark:text-zinc-400">
+            <tr>
+              <th className="px-3 py-2 font-medium whitespace-nowrap">
+                Schedule Key
               </th>
-            ))}
-          </tr>
-        </thead>
-
-        <tbody className="bg-white text-zinc-900 dark:bg-zinc-950 dark:text-zinc-50">
-          {isLoading ? (
-            <tr>
-              <td
-                colSpan={colCount}
-                className="px-3 py-6 text-zinc-500 dark:text-zinc-400"
-              >
-                Loading…
-              </td>
-            </tr>
-          ) : flights.length === 0 ? (
-            <tr>
-              <td
-                colSpan={colCount}
-                className="px-3 py-6 text-zinc-500 dark:text-zinc-400"
-              >
-                No flights found.
-              </td>
-            </tr>
-          ) : (
-            flights.map((f) => {
-              const key = (f.schedule_key ?? "").trim();
-              const p = key ? predictionByScheduleKey.get(key) : undefined;
-
-              return (
-                <tr
-                  key={f.schedule_key}
-                  className="border-t border-zinc-100 dark:border-zinc-900"
+              {columns.map((label) => (
+                <th
+                  key={label}
+                  className="px-3 py-2 font-medium whitespace-nowrap text-right"
+                  title={label}
                 >
-                  <td className="px-3 py-2 font-mono text-xs">{key || "—"}</td>
+                  {label}
+                </th>
+              ))}
+            </tr>
+          </thead>
 
-                  {columns.map((label) => {
-                    const v = pickProb(p?.probabilities ?? null, label);
-                    return (
-                      <td
-                        key={label}
-                        className="px-3 py-2 text-right font-mono text-xs"
-                      >
-                        {pctOrDash(v)}
-                      </td>
-                    );
-                  })}
-                </tr>
-              );
-            })
-          )}
-        </tbody>
-      </table>
+          <tbody className="bg-white text-zinc-900 dark:bg-zinc-950 dark:text-zinc-50">
+            {isLoading ? (
+              <tr>
+                <td
+                  colSpan={colCount}
+                  className="px-3 py-6 text-zinc-500 dark:text-zinc-400"
+                >
+                  Loading…
+                </td>
+              </tr>
+            ) : flights.length === 0 ? (
+              <tr>
+                <td
+                  colSpan={colCount}
+                  className="px-3 py-6 text-zinc-500 dark:text-zinc-400"
+                >
+                  No flights found.
+                </td>
+              </tr>
+            ) : (
+              flights.map((f) => {
+                const key = (f.schedule_key ?? "").trim();
+                const p = key ? predictionByScheduleKey.get(key) : undefined;
+
+                return (
+                  <tr
+                    key={f.schedule_key}
+                    className="border-t border-zinc-100 dark:border-zinc-900"
+                  >
+                    <td className="px-3 py-2 font-mono text-xs">
+                      {key || "—"}
+                    </td>
+
+                    {columns.map((label) => {
+                      const v = pickProb(p?.probabilities ?? null, label);
+                      return (
+                        <td
+                          key={label}
+                          className="px-3 py-2 text-right font-mono text-xs"
+                        >
+                          {pctOrDash(v)}
+                        </td>
+                      );
+                    })}
+                  </tr>
+                );
+              })
+            )}
+          </tbody>
+        </table>
+      </div>
     </div>
   );
 }
