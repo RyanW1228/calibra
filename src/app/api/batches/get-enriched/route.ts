@@ -15,6 +15,9 @@ type BatchRow = {
 
   prediction_window_start_unix: number | string | null;
   prediction_window_end_unix: number | string | null;
+
+  bounty_usdc: number | string | null;
+  bonded_model_count: number | null;
 };
 
 type BatchFlightRow = {
@@ -192,6 +195,15 @@ function computePredictionWindowFromSearchPayload(searchPayload: any | null): {
   };
 }
 
+function toNumberOrNull(v: unknown): number | null {
+  if (typeof v === "number") return Number.isFinite(v) ? v : null;
+  if (typeof v === "string") {
+    const n = Number(v);
+    return Number.isFinite(n) ? n : null;
+  }
+  return null;
+}
+
 export async function GET(req: Request) {
   try {
     const url = new URL(req.url);
@@ -209,9 +221,8 @@ export async function GET(req: Request) {
     const { data: batch, error: batchErr } = await sb
       .from("batches")
       .select(
-        "id, display_time_zone, flight_count, status, created_at, search_payload, included_schedule_keys, thresholds_minutes, prediction_window_start_unix, prediction_window_end_unix",
+        "id, display_time_zone, flight_count, status, created_at, search_payload, included_schedule_keys, thresholds_minutes, prediction_window_start_unix, prediction_window_end_unix, bounty_usdc, bonded_model_count",
       )
-
       .eq("id", batchId)
       .single();
 
@@ -273,6 +284,9 @@ export async function GET(req: Request) {
 
     const flights: BatchFlightRow[] = dbFlights;
 
+    const bountyUsd = toNumberOrNull((batch as any).bounty_usdc);
+    const bondedCount = toNumberOrNull((batch as any).bonded_model_count);
+
     return NextResponse.json(
       {
         ok: true,
@@ -281,6 +295,11 @@ export async function GET(req: Request) {
           prediction_window_start_at: window.prediction_window_start_at,
           prediction_window_end_at: window.prediction_window_end_at,
           end_when_all_landed: window.end_when_all_landed,
+          bounty_usdc: bountyUsd,
+          bonded_model_count:
+            typeof bondedCount === "number"
+              ? Math.max(0, Math.floor(bondedCount))
+              : null,
         },
         flights,
       },

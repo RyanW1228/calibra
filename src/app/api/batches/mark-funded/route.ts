@@ -13,6 +13,8 @@ type MarkFundedRequest = {
   specHash?: string | null;
   seedHash?: string | null;
   fundTxHash?: string | null;
+
+  bountyUsdc?: string | number | null;
 };
 
 function cleanUnix(v: unknown): number | null {
@@ -61,6 +63,25 @@ function cleanTxHash(v: unknown): string | null {
   return s;
 }
 
+function cleanBountyUsdc(v: unknown): number | null {
+  if (typeof v === "number") {
+    if (!Number.isFinite(v) || v <= 0) return null;
+    const rounded = Math.round(v * 100) / 100;
+    return rounded > 0 ? rounded : null;
+  }
+
+  if (typeof v === "string") {
+    const s = v.trim();
+    if (!s) return null;
+    const n = Number(s);
+    if (!Number.isFinite(n) || n <= 0) return null;
+    const rounded = Math.round(n * 100) / 100;
+    return rounded > 0 ? rounded : null;
+  }
+
+  return null;
+}
+
 export async function POST(req: Request) {
   let body: MarkFundedRequest;
 
@@ -89,6 +110,8 @@ export async function POST(req: Request) {
   const specHash = cleanHex32(body.specHash);
   const seedHash = cleanHex32(body.seedHash);
   const fundTxHash = cleanTxHash(body.fundTxHash);
+
+  const bountyUsdc = cleanBountyUsdc(body.bountyUsdc);
 
   if (wsU === null || weU === null) {
     return NextResponse.json(
@@ -125,6 +148,13 @@ export async function POST(req: Request) {
     );
   }
 
+  if (bountyUsdc === null) {
+    return NextResponse.json(
+      { ok: false, error: "Missing bountyUsdc" },
+      { status: 400 },
+    );
+  }
+
   const sb = supabaseServer();
 
   const { data, error } = await sb
@@ -138,10 +168,12 @@ export async function POST(req: Request) {
       spec_hash: specHash,
       seed_hash: seedHash,
       fund_tx_hash: fundTxHash,
+      bounty_usdc: bountyUsdc,
+      bonded_model_count: 0,
     })
     .eq("id", batchId)
     .select(
-      "id, status, prediction_window_start_unix, prediction_window_end_unix, end_when_all_landed, thresholds_minutes, spec_hash, seed_hash, fund_tx_hash",
+      "id, status, prediction_window_start_unix, prediction_window_end_unix, end_when_all_landed, thresholds_minutes, spec_hash, seed_hash, fund_tx_hash, bounty_usdc, bonded_model_count",
     )
     .single();
 

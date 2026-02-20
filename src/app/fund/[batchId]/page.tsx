@@ -476,6 +476,7 @@ export default function FundBatchPage() {
             specHash,
             seedHash,
             fundTxHash: fundHash,
+            bountyUsdc: amountUsdc.trim(),
           }),
         });
       } catch {}

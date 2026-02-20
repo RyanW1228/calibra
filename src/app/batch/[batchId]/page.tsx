@@ -34,6 +34,13 @@ type BatchGetResponse =
         thresholds_minutes?: number[] | null;
         prediction_window_start_at?: string | null;
         prediction_window_end_at?: string | null;
+
+        bounty_amount?: number | null;
+        bounty_amount_usdc?: number | null;
+        bounty_amount_base_units?: string | number | null;
+        bond_paid_count?: number | null;
+        models_joined_count?: number | null;
+        competitor_count?: number | null;
       };
       flights: BatchFlightRow[];
     }
@@ -140,6 +147,38 @@ function fmtFixed(n: number, decimals: number) {
   if (!Number.isFinite(n)) return "—";
   return n.toFixed(decimals);
 }
+
+function fmtMoney(n: number | null | undefined, symbol: string) {
+  if (typeof n !== "number" || !Number.isFinite(n)) return "—";
+  const v = Math.round(n * 100) / 100;
+  return `${symbol}${v.toLocaleString(undefined, {
+    minimumFractionDigits: 2,
+    maximumFractionDigits: 2,
+  })}`;
+}
+
+function pickCompetitorCount(batch: BatchInfo | null) {
+  if (!batch) return null;
+  const candidates = [
+    batch.bond_paid_count,
+    batch.competitor_count,
+    batch.models_joined_count,
+  ];
+  for (const x of candidates) {
+    if (typeof x === "number" && Number.isFinite(x) && x >= 0) return x;
+  }
+  return null;
+}
+
+function pickBountyAmountUsd(batch: BatchInfo | null) {
+  if (!batch) return null;
+  const candidates = [batch.bounty_amount_usdc, batch.bounty_amount];
+  for (const x of candidates) {
+    if (typeof x === "number" && Number.isFinite(x) && x >= 0) return x;
+  }
+  return null;
+}
+
 function buildThresholdColumns(thresholds: number[] | null | undefined) {
   const raw = Array.isArray(thresholds) ? thresholds : [];
   const cleaned = raw
@@ -251,6 +290,7 @@ export default function BatchPage() {
     const n = Number(formatUnits(adiBal.value, adiBal.decimals));
     return fmtFixed(n, 4);
   }, [adiBal]);
+
   const { connectAsync, connectors } = useConnect();
   const { disconnect } = useDisconnect();
   const { signMessageAsync } = useSignMessage();
@@ -280,6 +320,21 @@ export default function BatchPage() {
     const v = (batch?.display_time_zone ?? "UTC").toString();
     return v || "UTC";
   }, [batch]);
+
+  const bountyUsd = useMemo(() => pickBountyAmountUsd(batch), [batch]);
+  const bountyText = useMemo(() => {
+    const sym = typeof usdcSymbol === "string" ? usdcSymbol : "USDC";
+    const prefix = sym.toUpperCase() === "USDC" ? "$" : "";
+    if (prefix) return fmtMoney(bountyUsd, "$");
+    if (typeof bountyUsd !== "number" || !Number.isFinite(bountyUsd))
+      return "—";
+    return `${bountyUsd.toLocaleString(undefined, {
+      minimumFractionDigits: 2,
+      maximumFractionDigits: 2,
+    })} ${sym}`;
+  }, [bountyUsd, usdcSymbol]);
+
+  const competitorCount = useMemo(() => pickCompetitorCount(batch), [batch]);
 
   const [nowMs, setNowMs] = useState(() => Date.now());
   useEffect(() => {
@@ -776,6 +831,23 @@ export default function BatchPage() {
                     <span className="font-mono text-zinc-700 dark:text-zinc-200">
                       {fmtIsoInTimeZone(windowEndIso, tz)}
                     </span>
+                  </div>
+
+                  <div className="mt-1 flex flex-wrap items-center gap-x-6 gap-y-1 text-[11px] text-zinc-500 dark:text-zinc-400">
+                    <div>
+                      Bounty:{" "}
+                      <span className="font-mono text-zinc-700 dark:text-zinc-200">
+                        {bountyText}
+                      </span>
+                    </div>
+                    <div>
+                      Bonded Models:{" "}
+                      <span className="font-mono text-zinc-700 dark:text-zinc-200">
+                        {typeof competitorCount === "number"
+                          ? competitorCount.toLocaleString()
+                          : "—"}
+                      </span>
+                    </div>
                   </div>
                 </div>
               </div>
