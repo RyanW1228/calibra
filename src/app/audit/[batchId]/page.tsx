@@ -302,7 +302,7 @@ export default function AuditBatchPage() {
           <div className="flex items-start justify-between gap-6">
             <div className="flex flex-col gap-2">
               <h1 className="text-2xl font-semibold tracking-tight text-zinc-950 dark:text-zinc-50">
-                Public Audit
+                Batch Verification
               </h1>
               <div className="text-sm text-zinc-600 dark:text-zinc-400">
                 Batch ID: <span className="font-mono">{batchId}</span>

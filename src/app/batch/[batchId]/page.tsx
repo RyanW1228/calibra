@@ -161,16 +161,6 @@ function fmtMoney(n: number | null | undefined, symbol: string) {
 }
 
 function pickCompetitorCount(batch: BatchInfo | null) {
-  if (!batch) return null;
-  const candidates = [
-    batch.bonded_model_count,
-    batch.bond_paid_count,
-    batch.competitor_count,
-    batch.models_joined_count,
-  ];
-  for (const x of candidates) {
-    if (typeof x === "number" && Number.isFinite(x) && x >= 0) return x;
-  }
   return null;
 }
 
@@ -230,6 +220,49 @@ function writeLastUpdateMs(batchId: string, ms: number) {
   try {
     window.localStorage.setItem(lastUpdateKey(batchId), String(ms));
   } catch {}
+}
+
+function pickLatestRow(
+  a: BatchPredictionRow | undefined,
+  b: BatchPredictionRow,
+) {
+  if (!a) return b;
+
+  const aMs = a.created_at ? new Date(a.created_at).getTime() : -1;
+  const bMs = b.created_at ? new Date(b.created_at).getTime() : -1;
+
+  if (!Number.isFinite(aMs) && !Number.isFinite(bMs)) return a;
+  if (!Number.isFinite(aMs)) return b;
+  if (!Number.isFinite(bMs)) return a;
+
+  return bMs >= aMs ? b : a;
+}
+
+function keepLatestPerProvider(rows: BatchPredictionRow[]) {
+  const bySchedule = new Map<string, Map<string, BatchPredictionRow>>();
+
+  for (const r of rows) {
+    const scheduleKey = (r.schedule_key ?? "").toString();
+    if (!scheduleKey) continue;
+
+    const provider = (r.provider_address ?? "").toString().toLowerCase();
+    if (!provider) continue;
+
+    let inner = bySchedule.get(scheduleKey);
+    if (!inner) {
+      inner = new Map<string, BatchPredictionRow>();
+      bySchedule.set(scheduleKey, inner);
+    }
+
+    const prev = inner.get(provider);
+    inner.set(provider, pickLatestRow(prev, r));
+  }
+
+  const out: BatchPredictionRow[] = [];
+  for (const inner of bySchedule.values()) {
+    for (const v of inner.values()) out.push(v);
+  }
+  return out;
 }
 
 export default function BatchPage() {
@@ -341,8 +374,6 @@ export default function BatchPage() {
       maximumFractionDigits: 2,
     })} ${sym}`;
   }, [bountyUsd, usdcSymbol]);
-
-  const competitorCount = useMemo(() => pickCompetitorCount(batch), [batch]);
 
   const [nowMs, setNowMs] = useState(() => Date.now());
   useEffect(() => {
@@ -675,7 +706,7 @@ export default function BatchPage() {
       }
     }
 
-    return rows;
+    return keepLatestPerProvider(rows);
   }, [predictions, funderSubsRows]);
 
   const predictionColumns = useMemo(() => {
@@ -846,14 +877,6 @@ export default function BatchPage() {
                       Bounty:{" "}
                       <span className="font-mono text-zinc-700 dark:text-zinc-200">
                         {bountyText}
-                      </span>
-                    </div>
-                    <div>
-                      Bonded Models:{" "}
-                      <span className="font-mono text-zinc-700 dark:text-zinc-200">
-                        {typeof competitorCount === "number"
-                          ? competitorCount.toLocaleString()
-                          : "—"}
                       </span>
                     </div>
                   </div>
