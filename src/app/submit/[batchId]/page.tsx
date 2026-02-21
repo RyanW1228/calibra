@@ -182,6 +182,17 @@ function OkBanner(props: { title: string; message: string }) {
   );
 }
 
+function NoteBanner(props: { title: string; message: string }) {
+  return (
+    <div className="mt-6 rounded-xl border border-zinc-200 bg-white p-4 text-sm text-zinc-700 dark:border-zinc-800 dark:bg-zinc-950 dark:text-zinc-200">
+      <div className="font-medium">{props.title}</div>
+      <div className="mt-1 break-words text-zinc-600 dark:text-zinc-300">
+        {props.message}
+      </div>
+    </div>
+  );
+}
+
 function SubmitHeader(props: {
   batchId: string;
   isConnected: boolean;
@@ -233,6 +244,8 @@ function PredictionWindowCard(props: {
   nowMs: number;
   isOnchainLoading: boolean;
   onchainBatch: OnchainBatch | null;
+  bountyBaseUnits: bigint | null;
+  derivedBondBaseUnits: bigint | null;
 }) {
   const windowState = useMemo(() => {
     const b = props.onchainBatch;
@@ -333,6 +346,36 @@ function PredictionWindowCard(props: {
                 {fmtIsoInTimeZone(windowState.endIso, props.tz)}
               </span>
             </div>
+
+            <div className="mt-2 grid gap-2 sm:grid-cols-2">
+              <div className="rounded-lg border border-zinc-200 p-3 dark:border-zinc-800">
+                <div className="text-[11px] text-zinc-500 dark:text-zinc-400">
+                  Bounty
+                </div>
+                <div className="mt-1 text-sm font-semibold text-zinc-900 dark:text-zinc-50">
+                  {props.bountyBaseUnits === null
+                    ? "—"
+                    : fmtUsdc(props.bountyBaseUnits)}
+                </div>
+                <div className="mt-1 text-[11px] text-zinc-500 dark:text-zinc-400">
+                  Supabase (USDC base units, 1e6)
+                </div>
+              </div>
+
+              <div className="rounded-lg border border-zinc-200 p-3 dark:border-zinc-800">
+                <div className="text-[11px] text-zinc-500 dark:text-zinc-400">
+                  Bond (derived)
+                </div>
+                <div className="mt-1 text-sm font-semibold text-zinc-900 dark:text-zinc-50">
+                  {props.derivedBondBaseUnits === null
+                    ? "—"
+                    : fmtUsdc(props.derivedBondBaseUnits)}
+                </div>
+                <div className="mt-1 text-[11px] text-zinc-500 dark:text-zinc-400">
+                  Derived from bounty amount
+                </div>
+              </div>
+            </div>
           </div>
         </div>
 
@@ -371,7 +414,10 @@ function ActionBar(props: {
   isSubmitting: boolean;
   canJoin: boolean;
   onJoin: () => void;
+  isJoined: boolean;
 }) {
+  if (props.isJoined) return null;
+
   return (
     <div className="mt-4 flex flex-wrap items-center gap-2">
       <button
@@ -379,7 +425,7 @@ function ActionBar(props: {
         disabled={!props.canJoin || props.isSubmitting}
         className="inline-flex h-9 items-center justify-center rounded-xl bg-zinc-900 px-4 text-sm font-medium text-white transition hover:bg-zinc-800 disabled:opacity-60 dark:bg-zinc-50 dark:text-zinc-900 dark:hover:bg-zinc-200"
       >
-        {props.isSubmitting ? "Working…" : "Join (Bond)"}
+        {props.isSubmitting ? "Working…" : "Join"}
       </button>
     </div>
   );
@@ -398,9 +444,7 @@ function ClaimableAuditCard(props: {
   if (!p?.joined) return null;
 
   const finalized = b?.finalized === true;
-
   const rewardClaimable = finalized && !p.payoutClaimed ? p.payout : BigInt(0);
-
   const bondLocked = !p.bondSettled ? p.bond : BigInt(0);
 
   return (
@@ -677,6 +721,46 @@ function useOnchainState(params: {
   };
 }
 
+function readBountyBaseUnitsFromBatch(batch: BatchInfo | null): bigint | null {
+  if (!batch) return null;
+  const b: any = batch as any;
+
+  const candidates = [
+    b.bounty_amount,
+    b.bountyAmount,
+    b.bounty_amount_base,
+    b.bountyAmountBase,
+    b.bounty_amount_base_units,
+    b.bountyAmountBaseUnits,
+    b.bounty_usdc_base,
+    b.bountyUsdcBase,
+    b.bounty,
+    b.bountyUsdc,
+  ];
+
+  for (const v of candidates) {
+    if (v === null || v === undefined) continue;
+    try {
+      if (typeof v === "bigint") return v;
+      if (typeof v === "number" && Number.isFinite(v))
+        return BigInt(Math.trunc(v));
+      if (typeof v === "string") {
+        const s = v.trim();
+        if (!s) continue;
+        if (/^[0-9]+$/.test(s)) return BigInt(s);
+      }
+    } catch {
+      continue;
+    }
+  }
+
+  return null;
+}
+
+function deriveBondFromBountyBaseUnits(bountyBaseUnits: bigint): bigint {
+  return bountyBaseUnits / BigInt(10);
+}
+
 export default function SubmitBatchPage() {
   const router = useRouter();
   const params = useParams<{ batchId: string }>();
@@ -710,6 +794,20 @@ export default function SubmitBatchPage() {
     const v = (batch?.display_time_zone ?? "UTC").toString();
     return v || "UTC";
   }, [batch]);
+
+  const bountyBaseUnits = useMemo(
+    () => readBountyBaseUnitsFromBatch(batch),
+    [batch],
+  );
+
+  const derivedBondBaseUnits = useMemo(() => {
+    if (bountyBaseUnits === null) return null;
+    try {
+      return deriveBondFromBountyBaseUnits(bountyBaseUnits);
+    } catch {
+      return null;
+    }
+  }, [bountyBaseUnits]);
 
   const [nowMs, setNowMs] = useState(() => Date.now());
   useEffect(() => {
@@ -813,6 +911,25 @@ export default function SubmitBatchPage() {
     return { nonce, expiresAt };
   }
 
+  async function authedPost(path: string, addressLower: string, body: any) {
+    const { nonce, expiresAt } = await getNonceForSignature(addressLower);
+    const message = buildAuthMessage(addressLower, nonce, expiresAt);
+    const signature = (await signMessageAsync({ message })) as Hex;
+
+    const res = await fetch(path, {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({
+        address: addressLower,
+        signature,
+        ...body,
+      }),
+    });
+
+    const json = await safeJson(res);
+    return { res, json };
+  }
+
   async function onJoin() {
     setUiError(null);
     setUiOk(null);
@@ -844,32 +961,25 @@ export default function SubmitBatchPage() {
       const joinedBefore = provider?.joined === true;
       const addrLower = activeAddr.toLowerCase();
 
-      try {
-        if (!joinedBefore) {
-          const incRes = await fetch(
-            "/api/batches/increment-bonded-model-count",
-            {
-              method: "POST",
-              headers: { "content-type": "application/json" },
-              body: JSON.stringify({
-                batchId,
-                providerAddress: addrLower,
-              }),
-            },
-          );
+      if (!joinedBefore) {
+        const { res, json } = await authedPost(
+          "/api/batches/increment-bonded-model-count",
+          addrLower,
+          {
+            batchId,
+            providerAddress: addrLower,
+          },
+        );
 
-          const incJson = await safeJson(incRes);
-
-          if (!incRes.ok || !incJson?.ok) {
-            throw new Error(
-              (
-                incJson?.error ?? "Failed to increment bonded_model_count"
-              ).toString(),
-            );
-          }
+        if (!res.ok || !json?.ok) {
+          const details =
+            (
+              json?.details ??
+              json?.error ??
+              "Failed to increment bonded_model_count"
+            )?.toString?.() ?? "Failed to increment bonded_model_count";
+          throw new Error(details);
         }
-      } catch (e: any) {
-        setUiError(e?.message ?? "Failed to increment bonded_model_count");
       }
 
       setUiOk("Joined. You can now submit during the prediction window.");
@@ -1203,18 +1313,13 @@ export default function SubmitBatchPage() {
     return true;
   }, [provider, phase]);
 
-  const canReveal = useMemo(() => {
-    if (!provider?.joined) return false;
-    if (phase !== "reveal") return false;
-    return true;
-  }, [provider, phase]);
-
   const showClaimable = useMemo(() => {
-    // Only show after prediction window ends (i.e. windowEnd passed)
     return (
       phase === "reveal" || phase === "postreveal" || phase === "finalized"
     );
   }, [phase]);
+
+  const isJoined = provider?.joined === true;
 
   return (
     <div className="flex min-h-screen items-center justify-center bg-zinc-50 font-sans dark:bg-black">
@@ -1250,13 +1355,28 @@ export default function SubmitBatchPage() {
             nowMs={nowMs}
             isOnchainLoading={isOnchainLoading}
             onchainBatch={onchainBatch}
+            bountyBaseUnits={bountyBaseUnits}
+            derivedBondBaseUnits={derivedBondBaseUnits}
           />
 
           <ActionBar
             isSubmitting={isSubmitting}
             canJoin={canJoin}
             onJoin={onJoin}
+            isJoined={isJoined}
           />
+
+          {!isJoined ? (
+            <NoteBanner
+              title="How to enter predictions"
+              message="Enter values from 0–100 directly in the table. Joining is required before you can submit on-chain."
+            />
+          ) : (
+            <NoteBanner
+              title="How to enter predictions"
+              message="Enter values from 0–100 directly in the table."
+            />
+          )}
 
           {showClaimable ? (
             <ClaimableAuditCard
@@ -1268,17 +1388,31 @@ export default function SubmitBatchPage() {
             />
           ) : null}
 
-          <PredictionsTable
-            flights={flights}
-            isLoading={isLoading || isOnchainLoading}
-            thresholdsMinutes={batch?.thresholds_minutes ?? null}
-            predByScheduleKey={predByScheduleKey}
-            setPredByScheduleKey={setPredByScheduleKey}
-            onSubmit={
-              canSubmit ? onSubmit : () => setUiError("Not in commit phase")
-            }
-            isSubmitting={isSubmitting}
-          />
+          <div className={!isJoined ? "pointer-events-none opacity-60" : ""}>
+            <PredictionsTable
+              flights={flights}
+              isLoading={isLoading || isOnchainLoading}
+              thresholdsMinutes={batch?.thresholds_minutes ?? null}
+              predByScheduleKey={predByScheduleKey}
+              setPredByScheduleKey={setPredByScheduleKey}
+              onSubmit={
+                canSubmit ? onSubmit : () => setUiError("Not in commit phase")
+              }
+              isSubmitting={isSubmitting}
+            />
+          </div>
+
+          {isJoined && phase === "reveal" ? (
+            <div className="mt-4 flex flex-wrap items-center gap-2">
+              <button
+                onClick={onRevealLatest}
+                disabled={!isJoined || isSubmitting || phase !== "reveal"}
+                className="inline-flex h-9 items-center justify-center rounded-xl border border-zinc-200 bg-white px-4 text-sm font-medium text-zinc-900 transition hover:bg-zinc-50 disabled:opacity-60 dark:border-zinc-800 dark:bg-zinc-950 dark:text-zinc-50 dark:hover:bg-black"
+              >
+                {isSubmitting ? "Working…" : "Reveal Latest"}
+              </button>
+            </div>
+          ) : null}
         </div>
       </main>
     </div>
