@@ -23,7 +23,7 @@ type Props = {
 };
 
 const ADI_TESTNET_CHAIN_ID = 99999;
-const MOCK_USDC = "0xa014Dab469Eb138aa0072129458067aCd1688240" as Address;
+const MOCK_USDC = "0x0033354Bc028fE794AE810b6D921E47389723dEd" as Address;
 
 const ERC20_ABI = [
   {

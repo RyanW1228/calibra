@@ -52,9 +52,9 @@ type BatchInfo = Extract<BatchGetResponse, { ok: true }>["batch"];
 
 const ADI_TESTNET_CHAIN_ID = 99999;
 
-const MOCK_USDC = "0xa014Dab469Eb138aa0072129458067aCd1688240" as Address;
+const MOCK_USDC = "0x0033354Bc028fE794AE810b6D921E47389723dEd" as Address;
 const CALIBRA_PROTOCOL =
-  "0x2efe9ae023241Df74A1A79d64b8CA3acfC9d7a25" as Address;
+  "0xFD99B2C1026a4B27F8E1a11317919dfA5fa01B9d" as Address;
 const USDC_ABI = [
   {
     type: "function",

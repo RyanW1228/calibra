@@ -52,7 +52,7 @@ const ERC20_ABI = [
   },
 ] as const;
 
-const MOCK_USDC = "0xa014Dab469Eb138aa0072129458067aCd1688240" as Address;
+const MOCK_USDC = "0x0033354Bc028fE794AE810b6D921E47389723dEd" as Address;
 
 function fmtFixed(n: number, decimals: number) {
   if (!Number.isFinite(n)) return "—";
