@@ -912,6 +912,56 @@ export default function SubmitBatchPage() {
 
       await publicClient.waitForTransactionReceipt({ hash: txHash });
 
+      try {
+        const activeAddr = await ensureWalletReady();
+        const addrLower = activeAddr.toLowerCase();
+
+        const cc = (await publicClient.readContract({
+          address: CALIBRA_PROTOCOL,
+          abi: CALIBRA_PROTOCOL_ABI,
+          functionName: "getCommitCount",
+          args: [batchIdHash, addrLower as Address],
+        })) as unknown as number;
+
+        const latestIndex = Number(cc) - 1;
+
+        if (Number.isFinite(latestIndex) && latestIndex >= 0) {
+          const { nonce, expiresAt } = await getNonceForSignature(addrLower);
+
+          const message2 = buildAuthMessage(addrLower, nonce, expiresAt);
+          const signature2 = (await signMessageAsync({
+            message: message2,
+          })) as Hex;
+
+          const setRes = await fetch("/api/submissions/set-commit-index", {
+            method: "POST",
+            headers: { "content-type": "application/json" },
+            body: JSON.stringify({
+              address: addrLower,
+              signature: signature2,
+              batchIdHash,
+              providerAddress: addrLower,
+              commitHash,
+              commitIndex: latestIndex,
+            }),
+          });
+
+          const setJson = await safeJson(setRes);
+
+          if (!setRes.ok || !setJson?.ok) {
+            setUiError(
+              (
+                (setJson?.error ?? "Failed to set commit_index") as string
+              ).toString(),
+            );
+          }
+        } else {
+          setUiError("Committed, but failed to compute commitIndex");
+        }
+      } catch (e: any) {
+        setUiError(e?.message ?? "Committed, but failed to set commit_index");
+      }
+
       setUiOk("Committed on-chain. You can reveal after the window ends.");
       await loadOnchain();
     } catch (e: any) {
