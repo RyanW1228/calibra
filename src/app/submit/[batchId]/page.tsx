@@ -779,8 +779,29 @@ function readBountyBaseUnitsFromBatch(batch: BatchInfo | null): bigint | null {
   return null;
 }
 
+function bigintSqrt(n: bigint): bigint {
+  if (n < BigInt(0)) throw new Error("sqrt of negative bigint");
+  if (n < BigInt(2)) return n;
+
+  let x0 = n;
+  let x1 = (x0 + n / x0) / BigInt(2);
+
+  while (x1 < x0) {
+    x0 = x1;
+    x1 = (x0 + n / x0) / BigInt(2);
+  }
+
+  return x0;
+}
+
 function deriveBondFromBountyBaseUnits(bountyBaseUnits: bigint): bigint {
-  return bountyBaseUnits / BigInt(10);
+  const MICRO = BigInt(1_000_000);
+
+  if (bountyBaseUnits <= BigInt(0)) return BigInt(0);
+
+  const bountyUsdcWhole = bountyBaseUnits / MICRO;
+  const bondUsdcWhole = bigintSqrt(bountyUsdcWhole);
+  return bondUsdcWhole * MICRO;
 }
 
 export default function SubmitBatchPage() {
@@ -984,23 +1005,24 @@ export default function SubmitBatchPage() {
       const addrLower = activeAddr.toLowerCase();
 
       if (!joinedBefore) {
-        const { res, json } = await authedPost(
-          "/api/batches/increment-bonded-model-count",
-          addrLower,
-          {
-            batchId,
-            providerAddress: addrLower,
-          },
-        );
+        try {
+          const { res, json } = await authedPost(
+            "/api/batches/increment-bonded-model-count",
+            addrLower,
+            {
+              batchId,
+              providerAddress: addrLower,
+            },
+          );
 
-        if (!res.ok || !json?.ok) {
-          const details =
-            (
-              json?.details ??
-              json?.error ??
-              "Failed to increment bonded_model_count"
-            )?.toString?.() ?? "Failed to increment bonded_model_count";
-          throw new Error(details);
+          if (!res.ok || !json?.ok) {
+            console.warn("increment-bonded-model-count failed", {
+              status: res.status,
+              json,
+            });
+          }
+        } catch (e) {
+          console.warn("increment-bonded-model-count threw", e);
         }
       }
 

@@ -462,12 +462,6 @@ export default function AuditBatchPage() {
             </button>
           </div>
 
-          <div className="mt-4 text-xs text-zinc-500 dark:text-zinc-400">
-            MVP note: scores aren’t wired yet. This page is the canonical public
-            timeline: every commit timestamp, reveal status, and the post-seed
-            selected commit index used for scoring/finalization.
-          </div>
-
           <div className="mt-6 flex flex-col gap-4">
             {audit.length === 0 ? (
               <div className="rounded-xl border border-zinc-200 p-4 text-sm text-zinc-600 dark:border-zinc-800 dark:text-zinc-400">
