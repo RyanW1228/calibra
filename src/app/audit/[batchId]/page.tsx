@@ -18,6 +18,20 @@ function isHexAddress(s: string) {
 
 type SubmissionRow = {
   provider_address: string | null;
+
+  commit_index?: number | null;
+  commit_hash?: string | null;
+
+  created_at?: string | null;
+
+  root?: string | null;
+  salt?: string | null;
+
+  encrypted_uri_hash?: string | null;
+  public_uri_hash?: string | null;
+
+  storage_bucket?: string | null;
+  storage_path?: string | null;
 };
 
 type OnchainCommit = {
@@ -67,6 +81,17 @@ function OkBanner(props: { title: string; message: string }) {
   );
 }
 
+function normAddr(a: string) {
+  return a.trim().toLowerCase();
+}
+
+function shortHex(x: string | Hex, n = 10) {
+  const s = String(x ?? "");
+  if (!s.startsWith("0x")) return s || "—";
+  if (s.length <= n + 1) return s;
+  return `${s.slice(0, n)}…`;
+}
+
 function unixToIso(sec: bigint) {
   const n = Number(sec);
   if (!Number.isFinite(n) || n <= 0) return "—";
@@ -102,6 +127,15 @@ export default function AuditBatchPage() {
 
   const [providersLoading, setProvidersLoading] = useState(true);
   const [providers, setProviders] = useState<Address[]>([]);
+
+  const [submissionsLoading, setSubmissionsLoading] = useState(true);
+  const [submissions, setSubmissions] = useState<SubmissionRow[]>([]);
+  const [subByProviderAndIndex, setSubByProviderAndIndex] = useState<
+    Record<string, SubmissionRow>
+  >({});
+  const [subByProviderAndHash, setSubByProviderAndHash] = useState<
+    Record<string, SubmissionRow>
+  >({});
 
   const [auditLoading, setAuditLoading] = useState(false);
   const [audit, setAudit] = useState<ProviderAudit[]>([]);
@@ -180,6 +214,7 @@ export default function AuditBatchPage() {
 
   async function loadProvidersFromDb() {
     setProvidersLoading(true);
+    setSubmissionsLoading(true);
     setUiError(null);
 
     try {
@@ -188,27 +223,53 @@ export default function AuditBatchPage() {
 
       const { data, error } = await supabase
         .from("submissions")
-        .select("provider_address")
-        .eq("batch_id_hash", batchIdHash);
+        .select("*")
+        .eq("batch_id_hash", batchIdHash)
+        .order("created_at", { ascending: true });
 
       if (error) throw new Error(error.message);
 
       const rows = (Array.isArray(data) ? data : []) as SubmissionRow[];
 
-      const set = new Set<string>();
+      const providerSet = new Set<string>();
+      const byIdx: Record<string, SubmissionRow> = {};
+      const byHash: Record<string, SubmissionRow> = {};
+
       for (const r of rows) {
-        const a = (r.provider_address ?? "").toString().trim().toLowerCase();
-        if (a && isHexAddress(a)) set.add(a);
+        const aRaw = (r.provider_address ?? "").toString();
+        const a = normAddr(aRaw);
+        if (a && isHexAddress(a)) providerSet.add(a);
+
+        const idx =
+          typeof r.commit_index === "number" && Number.isFinite(r.commit_index)
+            ? r.commit_index
+            : null;
+
+        const h = (r.commit_hash ?? "").toString().trim().toLowerCase();
+
+        if (a && idx !== null) byIdx[`${a}:${idx}`] = r;
+        if (a && h && h.startsWith("0x")) byHash[`${a}:${h}`] = r;
       }
 
-      const list = Array.from(set).sort() as Address[];
+      const list = Array.from(providerSet).sort() as Address[];
+
       setProviders(list);
-      setOk(`Loaded ${list.length} provider(s).`);
+      setSubmissions(rows);
+      setSubByProviderAndIndex(byIdx);
+      setSubByProviderAndHash(byHash);
+
+      setOk(
+        `Loaded ${list.length} provider(s) and ${rows.length} DB submission row(s).`,
+      );
     } catch (e: any) {
       setProviders([]);
-      setErr(e?.message ?? "Failed to load providers");
+      setSubmissions([]);
+      setSubByProviderAndIndex({});
+      setSubByProviderAndHash({});
+      setErr(e?.message ?? "Failed to load providers/submissions");
     } finally {
       setProvidersLoading(false);
+      setSubmissionsLoading(false);
     }
   }
 
@@ -384,10 +445,12 @@ export default function AuditBatchPage() {
           <div className="mt-6 flex flex-wrap items-center gap-2">
             <button
               onClick={loadProvidersFromDb}
-              disabled={providersLoading}
+              disabled={providersLoading || submissionsLoading}
               className="inline-flex h-9 items-center justify-center rounded-xl border border-zinc-200 bg-white px-4 text-sm font-medium text-zinc-900 transition hover:bg-zinc-50 disabled:opacity-60 dark:border-zinc-800 dark:bg-zinc-950 dark:text-zinc-50 dark:hover:bg-black"
             >
-              {providersLoading ? "Loading…" : "Load Providers"}
+              {providersLoading || submissionsLoading
+                ? "Loading…"
+                : "Load Providers & DB Submissions"}
             </button>
 
             <button
@@ -438,11 +501,21 @@ export default function AuditBatchPage() {
                       <thead className="bg-zinc-50 text-[11px] text-zinc-600 dark:bg-zinc-900/40 dark:text-zinc-300">
                         <tr>
                           <th className="px-3 py-2">commitIndex</th>
+
                           <th className="px-3 py-2">committedAt (unix)</th>
                           <th className="px-3 py-2">committedAt (iso)</th>
+
+                          <th className="px-3 py-2">commitHash</th>
                           <th className="px-3 py-2">revealed</th>
+
                           <th className="px-3 py-2">root</th>
+                          <th className="px-3 py-2">salt</th>
                           <th className="px-3 py-2">publicUriHash</th>
+
+                          <th className="px-3 py-2">DB created_at</th>
+                          <th className="px-3 py-2">DB storage</th>
+                          <th className="px-3 py-2">DB encrypted_uri_hash</th>
+
                           <th className="px-3 py-2">score</th>
                         </tr>
                       </thead>
@@ -451,6 +524,30 @@ export default function AuditBatchPage() {
                           const isSelected =
                             p.selectedCommitIndex !== null &&
                             c.commitIndex === p.selectedCommitIndex;
+
+                          const prov = normAddr(String(p.provider));
+                          const byIdxKey = `${prov}:${c.commitIndex}`;
+                          const byHashKey = `${prov}:${String(c.commitHash).toLowerCase()}`;
+
+                          const sub =
+                            subByProviderAndIndex[byIdxKey] ??
+                            subByProviderAndHash[byHashKey] ??
+                            null;
+
+                          const dbCreatedAt = (sub?.created_at ?? "")
+                            .toString()
+                            .trim();
+                          const dbStorageBucket = (sub?.storage_bucket ?? "")
+                            .toString()
+                            .trim();
+                          const dbStoragePath = (sub?.storage_path ?? "")
+                            .toString()
+                            .trim();
+                          const dbEncryptedUriHash = (
+                            sub?.encrypted_uri_hash ?? ""
+                          )
+                            .toString()
+                            .trim();
 
                           return (
                             <tr
@@ -464,25 +561,48 @@ export default function AuditBatchPage() {
                               <td className="px-3 py-2 font-mono">
                                 {c.commitIndex}
                               </td>
+
                               <td className="px-3 py-2 font-mono">
                                 {c.committedAt.toString()}
                               </td>
                               <td className="px-3 py-2 font-mono">
                                 {unixToIso(c.committedAt)}
                               </td>
+
+                              <td className="px-3 py-2 font-mono">
+                                {shortHex(c.commitHash)}
+                              </td>
+
                               <td className="px-3 py-2">
                                 {c.revealed ? "Yes" : "No"}
                               </td>
+
                               <td className="px-3 py-2 font-mono">
-                                {c.root === ("0x" as Hex)
-                                  ? "0x"
-                                  : `${c.root.slice(0, 10)}…`}
+                                {shortHex(c.root)}
                               </td>
                               <td className="px-3 py-2 font-mono">
-                                {c.publicUriHash === ("0x" as Hex)
-                                  ? "0x"
-                                  : `${c.publicUriHash.slice(0, 10)}…`}
+                                {shortHex(c.salt)}
                               </td>
+                              <td className="px-3 py-2 font-mono">
+                                {shortHex(c.publicUriHash)}
+                              </td>
+
+                              <td className="px-3 py-2 font-mono">
+                                {dbCreatedAt ? dbCreatedAt : "—"}
+                              </td>
+
+                              <td className="px-3 py-2 font-mono">
+                                {dbStorageBucket || dbStoragePath
+                                  ? `${dbStorageBucket || "—"} / ${dbStoragePath || "—"}`
+                                  : "—"}
+                              </td>
+
+                              <td className="px-3 py-2 font-mono">
+                                {dbEncryptedUriHash
+                                  ? shortHex(dbEncryptedUriHash)
+                                  : "—"}
+                              </td>
+
                               <td className="px-3 py-2 text-zinc-500 dark:text-zinc-400">
                                 —
                               </td>

@@ -1343,11 +1343,13 @@ export default function SubmitBatchPage() {
     return true;
   }, [provider, phase]);
 
-  const showClaimable = useMemo(() => {
+  const isPostWindow = useMemo(() => {
     return (
       phase === "reveal" || phase === "postreveal" || phase === "finalized"
     );
   }, [phase]);
+
+  const showClaimable = isPostWindow;
 
   const isJoined = provider?.joined === true;
 
@@ -1389,12 +1391,82 @@ export default function SubmitBatchPage() {
             derivedBondBaseUnits={derivedBondBaseUnits}
           />
 
-          <ActionBar
-            isSubmitting={isSubmitting}
-            canJoin={canJoin}
-            onJoin={onJoin}
-            isJoined={isJoined}
-          />
+          {!isPostWindow ? (
+            <ActionBar
+              isSubmitting={isSubmitting}
+              canJoin={canJoin}
+              onJoin={onJoin}
+              isJoined={isJoined}
+            />
+          ) : null}
+
+          {isPostWindow ? (
+            <div className="mt-6 rounded-2xl border border-zinc-200 p-5 dark:border-zinc-800">
+              <div className="flex flex-col gap-1">
+                <div className="text-sm font-medium text-zinc-900 dark:text-zinc-50">
+                  Post-Window Summary
+                </div>
+                <div className="text-xs text-zinc-500 dark:text-zinc-400">
+                  The prediction window is closed. Submissions are locked.
+                </div>
+              </div>
+
+              <div className="mt-4 grid gap-3 sm:grid-cols-3">
+                <div className="rounded-xl border border-zinc-200 p-4 dark:border-zinc-800">
+                  <div className="text-[11px] text-zinc-500 dark:text-zinc-400">
+                    Reward
+                  </div>
+                  <div className="mt-1 text-lg font-semibold text-zinc-900 dark:text-zinc-50">
+                    {provider?.joined ? fmtUsdc(provider.payout) : "—"}
+                  </div>
+                  <div className="mt-1 text-[11px] text-zinc-500 dark:text-zinc-400">
+                    {onchainBatch?.finalized
+                      ? provider?.payoutClaimed
+                        ? "Already claimed"
+                        : "Claimable after finalization"
+                      : "Pending finalization"}
+                  </div>
+                </div>
+
+                <div className="rounded-xl border border-zinc-200 p-4 dark:border-zinc-800">
+                  <div className="text-[11px] text-zinc-500 dark:text-zinc-400">
+                    Stake (bond)
+                  </div>
+                  <div className="mt-1 text-lg font-semibold text-zinc-900 dark:text-zinc-50">
+                    {provider?.joined ? fmtUsdc(provider.bond) : "—"}
+                  </div>
+                  <div className="mt-1 text-[11px] text-zinc-500 dark:text-zinc-400">
+                    {provider?.joined
+                      ? provider.bondSettled
+                        ? "Settled in finalize()"
+                        : "Locked in contract"
+                      : "Join required"}
+                  </div>
+                </div>
+
+                <div className="rounded-xl border border-zinc-200 p-4 dark:border-zinc-800">
+                  <div className="text-[11px] text-zinc-500 dark:text-zinc-400">
+                    Score
+                  </div>
+                  <div className="mt-1 text-lg font-semibold text-zinc-900 dark:text-zinc-50">
+                    —
+                  </div>
+                  <div className="mt-1 text-[11px] text-zinc-500 dark:text-zinc-400">
+                    Not wired yet (add on-chain score getter)
+                  </div>
+                </div>
+              </div>
+
+              <div className="mt-4 flex flex-wrap items-center gap-2">
+                <button
+                  onClick={() => router.push(`/audit/${batchId}`)}
+                  className="inline-flex h-9 items-center justify-center rounded-xl border border-zinc-200 bg-white px-4 text-sm font-medium text-zinc-900 transition hover:bg-zinc-50 dark:border-zinc-800 dark:bg-zinc-950 dark:text-zinc-50 dark:hover:bg-black"
+                >
+                  View Public Audit
+                </button>
+              </div>
+            </div>
+          ) : null}
 
           {showClaimable ? (
             <ClaimableAuditCard
@@ -1406,19 +1478,21 @@ export default function SubmitBatchPage() {
             />
           ) : null}
 
-          <div className={!isJoined ? "pointer-events-none opacity-60" : ""}>
-            <PredictionsTable
-              flights={flights}
-              isLoading={isLoading || isOnchainLoading}
-              thresholdsMinutes={batch?.thresholds_minutes ?? null}
-              predByScheduleKey={predByScheduleKey}
-              setPredByScheduleKey={setPredByScheduleKey}
-              onSubmit={
-                canSubmit ? onSubmit : () => setUiError("Not in commit phase")
-              }
-              isSubmitting={isSubmitting}
-            />
-          </div>
+          {!isPostWindow ? (
+            <div className={!isJoined ? "pointer-events-none opacity-60" : ""}>
+              <PredictionsTable
+                flights={flights}
+                isLoading={isLoading || isOnchainLoading}
+                thresholdsMinutes={batch?.thresholds_minutes ?? null}
+                predByScheduleKey={predByScheduleKey}
+                setPredByScheduleKey={setPredByScheduleKey}
+                onSubmit={
+                  canSubmit ? onSubmit : () => setUiError("Not in commit phase")
+                }
+                isSubmitting={isSubmitting}
+              />
+            </div>
+          ) : null}
 
           {isJoined && phase === "reveal" ? (
             <div className="mt-4 flex flex-wrap items-center gap-2">

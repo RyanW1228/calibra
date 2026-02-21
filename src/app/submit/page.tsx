@@ -59,24 +59,68 @@ function fmtFixed(n: number, decimals: number) {
   return n.toFixed(decimals);
 }
 
+function fmtEndsIn(endIso: string | null | undefined, nowMs: number) {
+  if (!endIso) return "—";
+  const endMs = new Date(endIso).getTime();
+  if (!Number.isFinite(endMs)) return "—";
+
+  const diff = endMs - nowMs;
+  if (diff <= 0) return "Ended";
+
+  const totalMin = Math.floor(diff / 60_000);
+  const h = Math.floor(totalMin / 60);
+  const m = totalMin % 60;
+
+  if (h <= 0) return `${m}m`;
+  return `${h}h ${m}m`;
+}
+
+function fmtMoneyUsd(n: number | null | undefined) {
+  if (typeof n !== "number" || !Number.isFinite(n)) return "—";
+  const v = Math.round(n * 100) / 100;
+  return `$${v.toLocaleString(undefined, {
+    minimumFractionDigits: 2,
+    maximumFractionDigits: 2,
+  })}`;
+}
+
 type ActiveBatchRow = {
   id: string;
   display_time_zone: string | null;
   flight_count: number | null;
   status: string | null;
   created_at: string | null;
+
+  prediction_window_end_at?: string | null;
+
+  bounty_usdc?: number | null;
+  bounty_amount_usdc?: number | null;
+  bounty_amount?: number | null;
 };
 
 type ListActiveBatchesResponse =
   | { ok: true; batches: ActiveBatchRow[] }
   | { ok: false; error: string; details?: unknown };
 
-function fmtDate(s?: string | null) {
-  if (!s) return "—";
-  const d = new Date(s);
-  const ms = d.getTime();
-  if (!Number.isFinite(ms)) return "—";
-  return d.toLocaleString();
+type EnrichedBatchResponse =
+  | {
+      ok: true;
+      batch: {
+        id: string;
+        prediction_window_end_at?: string | null;
+        bounty_usdc?: number | null;
+        bounty_amount_usdc?: number | null;
+        bounty_amount?: number | null;
+      };
+    }
+  | { ok: false; error: string; details?: unknown };
+
+function pickBountyUsd(b: ActiveBatchRow) {
+  const candidates = [b.bounty_usdc, b.bounty_amount_usdc, b.bounty_amount];
+  for (const x of candidates) {
+    if (typeof x === "number" && Number.isFinite(x) && x >= 0) return x;
+  }
+  return null;
 }
 
 export default function SubmitHomePage() {
@@ -103,6 +147,12 @@ export default function SubmitHomePage() {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [batches, setBatches] = useState<ActiveBatchRow[]>([]);
+
+  const [nowMs, setNowMs] = useState(() => Date.now());
+  useEffect(() => {
+    const id = window.setInterval(() => setNowMs(Date.now()), 1_000);
+    return () => window.clearInterval(id);
+  }, []);
 
   const addr = useMemo(() => {
     if (!address) return undefined;
@@ -228,6 +278,39 @@ export default function SubmitHomePage() {
     await switchChainAsync({ chainId: ADI_TESTNET_CHAIN_ID });
   }
 
+  async function enrichBatches(base: ActiveBatchRow[]) {
+    const out = [...base];
+
+    await Promise.allSettled(
+      out.map(async (b, i) => {
+        try {
+          const res = await fetch(
+            `/api/batches/get-enriched?batchId=${encodeURIComponent(b.id)}`,
+            { method: "GET", cache: "no-store" },
+          );
+
+          const json = (await res.json()) as EnrichedBatchResponse;
+
+          if (!res.ok || !json.ok) return;
+
+          const eb = json.batch;
+
+          out[i] = {
+            ...out[i],
+            prediction_window_end_at:
+              eb.prediction_window_end_at ?? out[i].prediction_window_end_at,
+            bounty_usdc: eb.bounty_usdc ?? out[i].bounty_usdc,
+            bounty_amount_usdc:
+              eb.bounty_amount_usdc ?? out[i].bounty_amount_usdc,
+            bounty_amount: eb.bounty_amount ?? out[i].bounty_amount,
+          };
+        } catch {}
+      }),
+    );
+
+    return out;
+  }
+
   async function loadBatches() {
     setLoading(true);
     setError(null);
@@ -246,7 +329,11 @@ export default function SubmitHomePage() {
         return;
       }
 
-      setBatches(Array.isArray(json.batches) ? json.batches : []);
+      const base = Array.isArray(json.batches) ? json.batches : [];
+      setBatches(base);
+
+      const enriched = await enrichBatches(base);
+      setBatches(enriched);
     } catch (e: any) {
       setBatches([]);
       setError(e?.message ?? "Failed to load batches");
@@ -405,29 +492,39 @@ export default function SubmitHomePage() {
               </div>
             ) : (
               <div className="flex flex-col gap-2">
-                {batches.map((b) => (
-                  <div
-                    key={b.id}
-                    className="flex items-center justify-between rounded-lg border border-zinc-200 px-3 py-2 dark:border-zinc-800"
-                  >
-                    <div className="flex flex-col">
-                      <div className="text-sm font-medium text-zinc-900 dark:text-zinc-50">
-                        {b.id}
-                      </div>
-                      <div className="text-[11px] text-zinc-500 dark:text-zinc-400">
-                        {b.status ?? "—"} • {b.flight_count ?? 0} flights •{" "}
-                        {fmtDate(b.created_at)}
-                      </div>
-                    </div>
+                {batches.map((b) => {
+                  const endsIn = fmtEndsIn(
+                    b.prediction_window_end_at ?? null,
+                    nowMs,
+                  );
+                  const bountyText = fmtMoneyUsd(pickBountyUsd(b));
+                  const flights = b.flight_count ?? 0;
 
-                    <button
-                      onClick={() => openBatch(b.id)}
-                      className="inline-flex h-8 items-center justify-center rounded-lg bg-indigo-600 px-3 text-xs font-medium text-white transition hover:bg-indigo-500"
+                  return (
+                    <div
+                      key={b.id}
+                      className="flex items-center justify-between rounded-lg border border-zinc-200 px-3 py-2 dark:border-zinc-800"
                     >
-                      Predict
-                    </button>
-                  </div>
-                ))}
+                      <div className="flex flex-col">
+                        <div className="text-sm font-medium text-zinc-900 dark:text-zinc-50">
+                          {b.id}
+                        </div>
+
+                        <div className="mt-1 text-[11px] text-zinc-500 dark:text-zinc-400">
+                          Ends in {endsIn} • {flights} flights • Bounty:{" "}
+                          {bountyText}
+                        </div>
+                      </div>
+
+                      <button
+                        onClick={() => openBatch(b.id)}
+                        className="inline-flex h-8 items-center justify-center rounded-lg bg-indigo-600 px-3 text-xs font-medium text-white transition hover:bg-indigo-500"
+                      >
+                        Predict
+                      </button>
+                    </div>
+                  );
+                })}
               </div>
             )}
           </div>
