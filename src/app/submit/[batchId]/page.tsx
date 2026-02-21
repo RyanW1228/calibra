@@ -1224,6 +1224,42 @@ export default function SubmitBatchPage() {
     }
   }
 
+  async function onClaimPayout() {
+    setUiError(null);
+    setUiOk(null);
+
+    try {
+      setIsSubmitting(true);
+
+      if (!batchIdHash) throw new Error("Missing batchIdHash");
+      if (!publicClient) throw new Error("No public client");
+
+      await ensureWalletReady();
+
+      if (!addr) throw new Error("Wallet not connected");
+      if (!provider?.joined) throw new Error("Not joined");
+      if (!onchainBatch?.finalized) throw new Error("Batch not finalized yet");
+      if (provider.payoutClaimed) throw new Error("Payout already claimed");
+
+      const txHash = await writeContractAsync({
+        address: CALIBRA_PROTOCOL,
+        abi: CALIBRA_PROTOCOL_ABI,
+        functionName: "claimPayout",
+        args: [batchIdHash],
+        chainId: ADI_TESTNET_CHAIN_ID,
+      });
+
+      await publicClient.waitForTransactionReceipt({ hash: txHash });
+
+      setUiOk("Claimed payout on-chain.");
+      await loadOnchain();
+    } catch (e: any) {
+      setUiError(e?.shortMessage ?? e?.message ?? "Claim failed");
+    } finally {
+      setIsSubmitting(false);
+    }
+  }
+
   async function onRevealLatest() {
     setUiError(null);
     setUiOk(null);
@@ -1349,6 +1385,14 @@ export default function SubmitBatchPage() {
     );
   }, [phase]);
 
+  const canClaimPayout = useMemo(() => {
+    if (!provider?.joined) return false;
+    if (!onchainBatch?.finalized) return false;
+    if (provider.payoutClaimed) return false;
+    if (provider.payout <= BigInt(0)) return false;
+    return true;
+  }, [provider, onchainBatch]);
+
   const showClaimable = isPostWindow;
 
   const isJoined = provider?.joined === true;
@@ -1451,9 +1495,6 @@ export default function SubmitBatchPage() {
                   <div className="mt-1 text-lg font-semibold text-zinc-900 dark:text-zinc-50">
                     —
                   </div>
-                  <div className="mt-1 text-[11px] text-zinc-500 dark:text-zinc-400">
-                    Not wired yet (add on-chain score getter)
-                  </div>
                 </div>
               </div>
 
@@ -1464,18 +1505,16 @@ export default function SubmitBatchPage() {
                 >
                   View Public Audit
                 </button>
+
+                <button
+                  onClick={onClaimPayout}
+                  disabled={!canClaimPayout || isSubmitting}
+                  className="inline-flex h-9 items-center justify-center rounded-xl bg-zinc-900 px-4 text-sm font-medium text-white transition hover:bg-zinc-800 disabled:opacity-60 dark:bg-zinc-50 dark:text-zinc-900 dark:hover:bg-zinc-200"
+                >
+                  {isSubmitting ? "Working…" : "Claim Payout"}
+                </button>
               </div>
             </div>
-          ) : null}
-
-          {showClaimable ? (
-            <ClaimableAuditCard
-              batchId={batchId}
-              isOnchainLoading={isOnchainLoading}
-              onchainBatch={onchainBatch}
-              provider={provider}
-              onOpenAudit={() => router.push(`/audit/${batchId}`)}
-            />
           ) : null}
 
           {!isPostWindow ? (
