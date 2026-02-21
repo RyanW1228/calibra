@@ -126,10 +126,10 @@ type AggregationMode = "avg_latest" | "time_weighted_latest";
 // Half-life = time for a submission's weight to halve.
 const TIME_WEIGHT_HALF_LIFE_MIN = 30;
 
-function clamp01(x: number) {
+function clampPct(x: number) {
   if (!Number.isFinite(x)) return 0;
   if (x < 0) return 0;
-  if (x > 1) return 1;
+  if (x > 100) return 100;
   return x;
 }
 
@@ -193,10 +193,7 @@ function aggregateLatestPerModel(
 
       for (const k of keys) {
         const vRaw = (p as any)[k];
-        let v = typeof vRaw === "number" ? (vRaw > 1 ? vRaw / 100 : vRaw) : NaN;
-
-        v = clamp01(v);
-
+        const v = clampPct(typeof vRaw === "number" ? vRaw : NaN);
         sums[k] = (sums[k] ?? 0) + v * w;
       }
     }
