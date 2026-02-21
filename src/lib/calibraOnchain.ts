@@ -122,6 +122,16 @@ export const CALIBRA_PROTOCOL_ABI = [
   },
   {
     type: "function",
+    name: "getSelectedCommitIndex",
+    stateMutability: "view",
+    inputs: [
+      { name: "batchIdHash", type: "bytes32" },
+      { name: "provider", type: "address" },
+    ],
+    outputs: [{ name: "", type: "uint32" }],
+  },
+  {
+    type: "function",
     name: "join",
     stateMutability: "nonpayable",
     inputs: [{ name: "batchIdHash", type: "bytes32" }],

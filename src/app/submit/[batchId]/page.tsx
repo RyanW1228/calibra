@@ -290,27 +290,24 @@ function ClaimableAuditCard(props: {
 
   if (!p?.joined) return null;
 
-  const rewardClaimable = p.payoutClaimed ? BigInt(0) : p.payout;
-  // Assumption based on your fields: bondSettled=true means bond already handled (returned/slashed),
-  // bondSettled=false means bond still returnable on claim/settlement.
-  const bondClaimable = p.bondSettled ? BigInt(0) : p.bond;
-
-  const totalClaimable = rewardClaimable + bondClaimable;
-
   const finalized = b?.finalized === true;
+
+  const rewardClaimable = finalized && !p.payoutClaimed ? p.payout : BigInt(0);
+
+  const bondLocked = !p.bondSettled ? p.bond : BigInt(0);
 
   return (
     <div className="mt-6 rounded-2xl border border-zinc-200 p-5 dark:border-zinc-800">
       <div className="flex flex-col gap-1">
         <div className="text-sm font-medium text-zinc-900 dark:text-zinc-50">
-          Claimable Breakdown
+          Claimable & Audit
         </div>
         <div className="text-xs text-zinc-500 dark:text-zinc-400">
           {props.isOnchainLoading
             ? "Loading on-chain state…"
             : finalized
-              ? "Batch finalized — claimable amounts are now visible."
-              : "Not finalized yet — these amounts may change until finalization."}
+              ? "Batch finalized — rewards can now be claimed from the contract."
+              : "Not finalized — rewards are not computed yet."}
         </div>
       </div>
 
@@ -323,31 +320,39 @@ function ClaimableAuditCard(props: {
             {fmtUsdc(rewardClaimable)}
           </div>
           <div className="mt-1 text-[11px] text-zinc-500 dark:text-zinc-400">
-            {p.payoutClaimed ? "Already claimed" : "Unclaimed"}
+            {finalized
+              ? p.payoutClaimed
+                ? "Already claimed"
+                : "Unclaimed"
+              : "Pending finalization"}
           </div>
         </div>
 
         <div className="rounded-xl border border-zinc-200 p-4 dark:border-zinc-800">
           <div className="text-[11px] text-zinc-500 dark:text-zinc-400">
-            Returned bond (claimable)
+            Bond
           </div>
           <div className="mt-1 text-lg font-semibold text-zinc-900 dark:text-zinc-50">
-            {fmtUsdc(bondClaimable)}
+            {fmtUsdc(p.bond)}
           </div>
           <div className="mt-1 text-[11px] text-zinc-500 dark:text-zinc-400">
-            {p.bondSettled ? "Settled" : "Unsettled"}
+            {p.bondSettled ? "Settled in finalize()" : "Locked in contract"}
           </div>
         </div>
 
         <div className="rounded-xl border border-zinc-200 p-4 dark:border-zinc-800">
           <div className="text-[11px] text-zinc-500 dark:text-zinc-400">
-            Total claimable
+            Status
           </div>
           <div className="mt-1 text-lg font-semibold text-zinc-900 dark:text-zinc-50">
-            {fmtUsdc(totalClaimable)}
+            {finalized ? "Finalized" : "Active"}
           </div>
           <div className="mt-1 text-[11px] text-zinc-500 dark:text-zinc-400">
-            From contract (reward + bond)
+            {finalized
+              ? "Bond refunded/slashed during finalize()"
+              : bondLocked > BigInt(0)
+                ? "Bond will be refunded/slashed on finalize()"
+                : "—"}
           </div>
         </div>
       </div>
