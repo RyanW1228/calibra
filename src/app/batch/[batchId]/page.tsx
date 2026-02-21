@@ -205,10 +205,8 @@ function aggregateLatestPerModel(
 
     out.push({
       schedule_key: scheduleKey,
-      provider_address:
-        mode === "time_weighted_latest"
-          ? "aggregate:time_weighted_latest"
-          : "aggregate:avg_latest",
+      provider_address: null,
+
       outcome: null,
       confidence: null,
       created_at: new Date(nowMs).toISOString(),
@@ -1079,7 +1077,7 @@ export default function BatchPage() {
 
               <BatchPredictionsTable
                 flights={flights}
-                predictions={aggregatedPredictionRows}
+                predictions={[...aggregatedPredictionRows, ...predictionRows]}
                 isLoading={isLoading || predLoading}
                 thresholdsMinutes={batch?.thresholds_minutes ?? null}
                 onRefresh={loadFunderSubmissions}

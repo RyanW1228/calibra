@@ -406,16 +406,18 @@ function ActionBar(props: {
   onJoin: () => void;
   isJoined: boolean;
 }) {
-  if (props.isJoined) return null;
-
   return (
     <div className="mt-4 flex flex-wrap items-center gap-2">
       <button
         onClick={props.onJoin}
-        disabled={!props.canJoin || props.isSubmitting}
-        className="inline-flex h-9 items-center justify-center rounded-xl bg-zinc-900 px-4 text-sm font-medium text-white transition hover:bg-zinc-800 disabled:opacity-60 dark:bg-zinc-50 dark:text-zinc-900 dark:hover:bg-zinc-200"
+        disabled={props.isJoined || !props.canJoin || props.isSubmitting}
+        className={
+          props.isJoined
+            ? "inline-flex h-9 items-center justify-center rounded-xl border border-zinc-200 bg-white px-4 text-sm font-medium text-zinc-900 dark:border-zinc-800 dark:bg-zinc-950 dark:text-zinc-50"
+            : "inline-flex h-9 items-center justify-center rounded-xl bg-zinc-900 px-4 text-sm font-medium text-white transition hover:bg-zinc-800 disabled:opacity-60 dark:bg-zinc-50 dark:text-zinc-900 dark:hover:bg-zinc-200"
+        }
       >
-        {props.isSubmitting ? "Working…" : "Join"}
+        {props.isSubmitting ? "Working…" : props.isJoined ? "Joined" : "Join"}
       </button>
     </div>
   );
@@ -715,20 +717,16 @@ function readBountyBaseUnitsFromBatch(batch: BatchInfo | null): bigint | null {
   if (!batch) return null;
   const b: any = batch as any;
 
-  const candidates = [
-    b.bounty_amount,
-    b.bountyAmount,
-    b.bounty_amount_base,
-    b.bountyAmountBase,
+  const baseUnitCandidates = [
     b.bounty_amount_base_units,
     b.bountyAmountBaseUnits,
     b.bounty_usdc_base,
     b.bountyUsdcBase,
-    b.bounty,
-    b.bountyUsdc,
+    b.bounty_amount_base,
+    b.bountyAmountBase,
   ];
 
-  for (const v of candidates) {
+  for (const v of baseUnitCandidates) {
     if (v === null || v === undefined) continue;
     try {
       if (typeof v === "bigint") return v;
@@ -738,6 +736,40 @@ function readBountyBaseUnitsFromBatch(batch: BatchInfo | null): bigint | null {
         const s = v.trim();
         if (!s) continue;
         if (/^[0-9]+$/.test(s)) return BigInt(s);
+      }
+    } catch {
+      continue;
+    }
+  }
+
+  const usdcCandidates = [
+    b.bounty_amount,
+    b.bountyAmount,
+    b.bounty,
+    b.bountyUsdc,
+    b.bounty_usdc,
+    b.bountyAmountUsdc,
+  ];
+
+  for (const v of usdcCandidates) {
+    if (v === null || v === undefined) continue;
+
+    try {
+      if (typeof v === "number" && Number.isFinite(v)) {
+        const micros = Math.round(v * 1_000_000);
+        return BigInt(micros);
+      }
+
+      if (typeof v === "string") {
+        const s0 = v.trim();
+        if (!s0) continue;
+
+        // allow "10000", "10000.00"
+        if (!/^[0-9]+(\.[0-9]+)?$/.test(s0)) continue;
+
+        const [whole, fracRaw] = s0.split(".");
+        const frac = (fracRaw ?? "").slice(0, 6).padEnd(6, "0");
+        return BigInt(whole) * BigInt(1_000_000) + BigInt(frac || "0");
       }
     } catch {
       continue;
