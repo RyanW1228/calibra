@@ -161,4 +161,41 @@ export const CALIBRA_PROTOCOL_ABI = [
     ],
     outputs: [],
   },
+  {
+    type: "function",
+    name: "lockRandomness",
+    stateMutability: "nonpayable",
+    inputs: [{ name: "batchIdHash", type: "bytes32" }],
+    outputs: [],
+  },
+  {
+    type: "function",
+    name: "revealSeed",
+    stateMutability: "nonpayable",
+    inputs: [
+      { name: "batchIdHash", type: "bytes32" },
+      { name: "seed", type: "bytes32" },
+    ],
+    outputs: [],
+  },
+  {
+    type: "function",
+    name: "finalize",
+    stateMutability: "nonpayable",
+    inputs: [
+      { name: "batchIdHash", type: "bytes32" },
+      { name: "providerList", type: "address[]" },
+      { name: "payouts", type: "uint256[]" },
+      { name: "selectedCommitIndices", type: "uint32[]" },
+      { name: "scoresHash", type: "bytes32" },
+    ],
+    outputs: [],
+  },
+  {
+    type: "function",
+    name: "claimPayout",
+    stateMutability: "nonpayable",
+    inputs: [{ name: "batchIdHash", type: "bytes32" }],
+    outputs: [],
+  },
 ] as const;
