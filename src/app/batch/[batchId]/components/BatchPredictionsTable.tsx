@@ -7,6 +7,7 @@ import type { BatchFlightRow, BatchPredictionRow } from "./BatchFlightsTable";
 type Props = {
   flights: BatchFlightRow[];
   predictions: BatchPredictionRow[];
+  aggregateRows?: BatchPredictionRow[];
   isLoading: boolean;
   thresholdsMinutes: number[] | null | undefined;
 

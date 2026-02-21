@@ -193,7 +193,10 @@ function aggregateLatestPerModel(
 
       for (const k of keys) {
         const vRaw = (p as any)[k];
-        const v = clamp01(typeof vRaw === "number" ? vRaw : NaN);
+        let v = typeof vRaw === "number" ? (vRaw > 1 ? vRaw / 100 : vRaw) : NaN;
+
+        v = clamp01(v);
+
         sums[k] = (sums[k] ?? 0) + v * w;
       }
     }
@@ -1077,7 +1080,8 @@ export default function BatchPage() {
 
               <BatchPredictionsTable
                 flights={flights}
-                predictions={[...aggregatedPredictionRows, ...predictionRows]}
+                predictions={predictionRows}
+                aggregateRows={aggregatedPredictionRows}
                 isLoading={isLoading || predLoading}
                 thresholdsMinutes={batch?.thresholds_minutes ?? null}
                 onRefresh={loadFunderSubmissions}
