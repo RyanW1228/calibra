@@ -122,6 +122,13 @@ export const CALIBRA_PROTOCOL_ABI = [
   },
   {
     type: "function",
+    name: "getCutoff",
+    stateMutability: "view",
+    inputs: [{ name: "batchIdHash", type: "bytes32" }],
+    outputs: [{ name: "", type: "uint64" }],
+  },
+  {
+    type: "function",
     name: "getSelectedCommitIndex",
     stateMutability: "view",
     inputs: [
@@ -129,37 +136,6 @@ export const CALIBRA_PROTOCOL_ABI = [
       { name: "provider", type: "address" },
     ],
     outputs: [{ name: "", type: "uint32" }],
-  },
-  {
-    type: "function",
-    name: "join",
-    stateMutability: "nonpayable",
-    inputs: [{ name: "batchIdHash", type: "bytes32" }],
-    outputs: [],
-  },
-  {
-    type: "function",
-    name: "commit",
-    stateMutability: "nonpayable",
-    inputs: [
-      { name: "batchIdHash", type: "bytes32" },
-      { name: "commitHash", type: "bytes32" },
-      { name: "encryptedUriHash", type: "bytes" },
-    ],
-    outputs: [],
-  },
-  {
-    type: "function",
-    name: "revealCommits",
-    stateMutability: "nonpayable",
-    inputs: [
-      { name: "batchIdHash", type: "bytes32" },
-      { name: "commitIndices", type: "uint32[]" },
-      { name: "roots", type: "bytes32[]" },
-      { name: "salts", type: "bytes32[]" },
-      { name: "publicUris", type: "bytes[]" },
-    ],
-    outputs: [],
   },
   {
     type: "function",
@@ -196,6 +172,37 @@ export const CALIBRA_PROTOCOL_ABI = [
     name: "claimPayout",
     stateMutability: "nonpayable",
     inputs: [{ name: "batchIdHash", type: "bytes32" }],
+    outputs: [],
+  },
+  {
+    type: "function",
+    name: "join",
+    stateMutability: "nonpayable",
+    inputs: [{ name: "batchIdHash", type: "bytes32" }],
+    outputs: [],
+  },
+  {
+    type: "function",
+    name: "commit",
+    stateMutability: "nonpayable",
+    inputs: [
+      { name: "batchIdHash", type: "bytes32" },
+      { name: "commitHash", type: "bytes32" },
+      { name: "encryptedUriHash", type: "bytes" },
+    ],
+    outputs: [],
+  },
+  {
+    type: "function",
+    name: "revealCommits",
+    stateMutability: "nonpayable",
+    inputs: [
+      { name: "batchIdHash", type: "bytes32" },
+      { name: "commitIndices", type: "uint32[]" },
+      { name: "roots", type: "bytes32[]" },
+      { name: "salts", type: "bytes32[]" },
+      { name: "publicUris", type: "bytes[]" },
+    ],
     outputs: [],
   },
 ] as const;
