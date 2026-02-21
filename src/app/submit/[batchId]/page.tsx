@@ -347,33 +347,23 @@ function PredictionWindowCard(props: {
               </span>
             </div>
 
-            <div className="mt-2 grid gap-2 sm:grid-cols-2">
-              <div className="rounded-lg border border-zinc-200 p-3 dark:border-zinc-800">
-                <div className="text-[11px] text-zinc-500 dark:text-zinc-400">
-                  Bounty
-                </div>
-                <div className="mt-1 text-sm font-semibold text-zinc-900 dark:text-zinc-50">
+            <div className="mt-1 flex flex-wrap items-center gap-x-6 gap-y-1 text-[11px] text-zinc-500 dark:text-zinc-400">
+              <div>
+                Bounty:{" "}
+                <span className="font-mono text-zinc-700 dark:text-zinc-200">
                   {props.bountyBaseUnits === null
                     ? "—"
                     : fmtUsdc(props.bountyBaseUnits)}
-                </div>
-                <div className="mt-1 text-[11px] text-zinc-500 dark:text-zinc-400">
-                  Supabase (USDC base units, 1e6)
-                </div>
+                </span>
               </div>
 
-              <div className="rounded-lg border border-zinc-200 p-3 dark:border-zinc-800">
-                <div className="text-[11px] text-zinc-500 dark:text-zinc-400">
-                  Bond (derived)
-                </div>
-                <div className="mt-1 text-sm font-semibold text-zinc-900 dark:text-zinc-50">
+              <div>
+                Bond:{" "}
+                <span className="font-mono text-zinc-700 dark:text-zinc-200">
                   {props.derivedBondBaseUnits === null
                     ? "—"
                     : fmtUsdc(props.derivedBondBaseUnits)}
-                </div>
-                <div className="mt-1 text-[11px] text-zinc-500 dark:text-zinc-400">
-                  Derived from bounty amount
-                </div>
+                </span>
               </div>
             </div>
           </div>

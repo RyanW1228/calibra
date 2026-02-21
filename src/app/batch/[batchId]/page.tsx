@@ -120,6 +120,105 @@ function fmtCountdown(ms: number) {
 
 const UPDATE_COOLDOWN_MS = 30_000;
 
+type AggregationMode = "avg_latest" | "time_weighted_latest";
+
+// Controls how aggressively recency is favored for time-weighted mode.
+// Half-life = time for a submission's weight to halve.
+const TIME_WEIGHT_HALF_LIFE_MIN = 30;
+
+function clamp01(x: number) {
+  if (!Number.isFinite(x)) return 0;
+  if (x < 0) return 0;
+  if (x > 1) return 1;
+  return x;
+}
+
+function weightFromCreatedAt(createdAtIso: string | null, nowMs: number) {
+  if (!createdAtIso) return 1;
+  const t = new Date(createdAtIso).getTime();
+  if (!Number.isFinite(t)) return 1;
+
+  const ageMs = Math.max(0, nowMs - t);
+  const halfLifeMs = TIME_WEIGHT_HALF_LIFE_MIN * 60_000;
+  if (halfLifeMs <= 0) return 1;
+
+  // 0.5^(age/halfLife)
+  return Math.pow(0.5, ageMs / halfLifeMs);
+}
+
+function aggregateLatestPerModel(
+  latestRows: BatchPredictionRow[],
+  mode: AggregationMode,
+  nowMs: number,
+) {
+  // latestRows is already "latest per provider per schedule" (via keepLatestPerProvider)
+  const bySchedule = new Map<string, BatchPredictionRow[]>();
+  for (const r of latestRows) {
+    const scheduleKey = (r.schedule_key ?? "").toString();
+    if (!scheduleKey) continue;
+    if (!r.probabilities || typeof r.probabilities !== "object") continue;
+
+    const arr = bySchedule.get(scheduleKey) ?? [];
+    arr.push(r);
+    bySchedule.set(scheduleKey, arr);
+  }
+
+  const out: BatchPredictionRow[] = [];
+
+  for (const [scheduleKey, rows] of bySchedule.entries()) {
+    if (rows.length === 0) continue;
+
+    const keys = new Set<string>();
+    for (const r of rows) {
+      const p = r.probabilities ?? null;
+      if (!p) continue;
+      for (const k of Object.keys(p)) keys.add(k);
+    }
+
+    const sums: Record<string, number> = {};
+    let denom = 0;
+
+    for (const r of rows) {
+      const p = r.probabilities ?? null;
+      if (!p) continue;
+
+      const w =
+        mode === "time_weighted_latest"
+          ? weightFromCreatedAt(r.created_at ?? null, nowMs)
+          : 1;
+
+      if (!Number.isFinite(w) || w <= 0) continue;
+
+      denom += w;
+
+      for (const k of keys) {
+        const vRaw = (p as any)[k];
+        const v = clamp01(typeof vRaw === "number" ? vRaw : NaN);
+        sums[k] = (sums[k] ?? 0) + v * w;
+      }
+    }
+
+    if (denom <= 0) continue;
+
+    const aggregated: Record<string, number> = {};
+    for (const k of keys) aggregated[k] = (sums[k] ?? 0) / denom;
+
+    out.push({
+      schedule_key: scheduleKey,
+      provider_address:
+        mode === "time_weighted_latest"
+          ? "aggregate:time_weighted_latest"
+          : "aggregate:avg_latest",
+      outcome: null,
+      confidence: null,
+      created_at: new Date(nowMs).toISOString(),
+      probabilities: aggregated,
+    });
+  }
+
+  return out;
+}
+
 const ERC20_ABI = [
   {
     type: "function",
@@ -380,6 +479,9 @@ export default function BatchPage() {
     const id = window.setInterval(() => setNowMs(Date.now()), 250);
     return () => window.clearInterval(id);
   }, []);
+
+  const [aggregationMode, setAggregationMode] =
+    useState<AggregationMode>("avg_latest");
 
   useEffect(() => {
     if (!batchId) return;
@@ -709,6 +811,10 @@ export default function BatchPage() {
     return keepLatestPerProvider(rows);
   }, [predictions, funderSubsRows]);
 
+  const aggregatedPredictionRows = useMemo(() => {
+    return aggregateLatestPerModel(predictionRows, aggregationMode, nowMs);
+  }, [predictionRows, aggregationMode, nowMs]);
+
   const predictionColumns = useMemo(() => {
     return buildThresholdColumns(batch?.thresholds_minutes ?? null);
   }, [batch?.thresholds_minutes]);
@@ -949,12 +1055,31 @@ export default function BatchPage() {
                   </div>
                 </div>
 
-                <div className="flex items-center gap-2 sm:justify-end" />
+                <div className="flex items-center gap-2 sm:justify-end">
+                  <div className="text-[11px] text-zinc-500 dark:text-zinc-400">
+                    Aggregate:
+                  </div>
+
+                  <select
+                    value={aggregationMode}
+                    onChange={(e) =>
+                      setAggregationMode(e.target.value as AggregationMode)
+                    }
+                    className="h-9 rounded-full border border-zinc-200 bg-white px-3 text-xs font-medium text-zinc-900 transition hover:bg-zinc-50 dark:border-zinc-800 dark:bg-zinc-950 dark:text-zinc-50 dark:hover:bg-black"
+                  >
+                    <option value="avg_latest">
+                      Average of latest submissions
+                    </option>
+                    <option value="time_weighted_latest">
+                      Time-weighted average of latest submissions
+                    </option>
+                  </select>
+                </div>
               </div>
 
               <BatchPredictionsTable
                 flights={flights}
-                predictions={predictionRows}
+                predictions={aggregatedPredictionRows}
                 isLoading={isLoading || predLoading}
                 thresholdsMinutes={batch?.thresholds_minutes ?? null}
                 onRefresh={loadFunderSubmissions}
