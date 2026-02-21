@@ -1,8 +1,7 @@
 // calibra/src/app/submit/[batchId]/components/PredictionsTable.tsx
 "use client";
 
-import React, { useMemo, useRef, useState } from "react";
-
+import React, { useMemo } from "react";
 type BatchFlight = {
   schedule_key: string;
   airline: string;
@@ -106,17 +105,6 @@ export default function PredictionsTable(props: {
 
   const colCount = 1 + columns.length;
 
-  const fileRef = useRef<HTMLInputElement | null>(null);
-  const [fileError, setFileError] = useState<string | null>(null);
-  const [fileOk, setFileOk] = useState<string | null>(null);
-
-  const scheduleKeySet = useMemo(
-    () => new Set(flights.map((f) => (f.schedule_key ?? "").trim())),
-    [flights],
-  );
-
-  const columnSet = useMemo(() => new Set(columns), [columns]);
-
   const filledCount = useMemo(() => {
     let n = 0;
 
@@ -140,101 +128,6 @@ export default function PredictionsTable(props: {
     return n;
   }, [flights, predByScheduleKey, columns]);
 
-  async function onPickFile(e: React.ChangeEvent<HTMLInputElement>) {
-    setFileError(null);
-    setFileOk(null);
-
-    const file = e.target.files?.[0] ?? null;
-    if (!file) return;
-
-    try {
-      const text = await file.text();
-      const { rows, error } = parseCsv(text);
-      if (error) {
-        setFileError(error);
-        return;
-      }
-
-      const first = rows[0] ?? {};
-      const keyCol =
-        ["schedule_key", "scheduleKey", "key"].find((c) => c in first) ?? null;
-
-      if (!keyCol) {
-        setFileError('CSV must include a "schedule_key" column.');
-        return;
-      }
-
-      const csvCols = Object.keys(first);
-      const probCols = csvCols.filter(
-        (c) => c !== keyCol && columnSet.has(c.trim()),
-      );
-
-      if (probCols.length === 0) {
-        setFileError(
-          "CSV must include threshold columns matching your table header labels.",
-        );
-        return;
-      }
-
-      let appliedCells = 0;
-      let appliedRows = 0;
-      let skippedUnknown = 0;
-      let skippedInvalid = 0;
-
-      setPredByScheduleKey((prev) => {
-        const next = { ...prev };
-
-        for (const r of rows) {
-          const key = (r[keyCol] ?? "").trim();
-          if (!key) continue;
-
-          if (!scheduleKeySet.has(key)) {
-            skippedUnknown += 1;
-            continue;
-          }
-
-          const existing = next[key] ? { ...next[key] } : {};
-          let changedThisRow = 0;
-
-          for (const col of probCols) {
-            const label = col.trim();
-            const raw = (r[col] ?? "").trim();
-            if (!raw) continue;
-
-            const x = parseNumberMaybe(raw);
-            if (x === null) {
-              skippedInvalid += 1;
-              continue;
-            }
-
-            existing[label] = String(clampPct(x));
-            appliedCells += 1;
-            changedThisRow += 1;
-          }
-
-          if (changedThisRow > 0) {
-            next[key] = existing;
-            appliedRows += 1;
-          }
-        }
-
-        return next;
-      });
-
-      setFileOk(
-        `Applied ${appliedRows} row${appliedRows === 1 ? "" : "s"} (${appliedCells} cells)${
-          skippedUnknown || skippedInvalid
-            ? ` (skipped ${skippedUnknown} unknown, ${skippedInvalid} invalid)`
-            : ""
-        }.`,
-      );
-    } catch (err: any) {
-      setFileError(err?.message ?? "Failed to read file");
-    } finally {
-      if (fileRef.current) fileRef.current.value = "";
-    }
-  }
-
   return (
     <div className="mt-6 rounded-2xl border border-zinc-200 bg-white p-4 dark:border-zinc-800 dark:bg-zinc-950">
       <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
@@ -248,22 +141,6 @@ export default function PredictionsTable(props: {
             <span className="font-mono">{flights.length}</span>
           </div>
 
-          <input
-            ref={fileRef}
-            type="file"
-            accept=".csv,text/csv"
-            onChange={onPickFile}
-            className="hidden"
-          />
-
-          <button
-            onClick={() => fileRef.current?.click()}
-            disabled={isLoading || flights.length === 0}
-            className="inline-flex h-9 items-center justify-center rounded-xl border border-zinc-200 bg-white px-4 text-sm font-medium text-zinc-900 transition hover:bg-zinc-50 disabled:opacity-60 dark:border-zinc-800 dark:bg-zinc-950 dark:text-zinc-50 dark:hover:bg-black"
-          >
-            Upload CSV
-          </button>
-
           <button
             onClick={onSubmit}
             disabled={isLoading || flights.length === 0 || isSubmitting}
@@ -273,18 +150,6 @@ export default function PredictionsTable(props: {
           </button>
         </div>
       </div>
-
-      {fileError ? (
-        <div className="mt-4 rounded-xl border border-red-200 bg-red-50 p-3 text-xs text-red-700 dark:border-red-900/50 dark:bg-red-950/30 dark:text-red-200">
-          {fileError}
-        </div>
-      ) : null}
-
-      {fileOk ? (
-        <div className="mt-4 rounded-xl border border-emerald-200 bg-emerald-50 p-3 text-xs text-emerald-800 dark:border-emerald-900/50 dark:bg-emerald-950/30 dark:text-emerald-200">
-          {fileOk}
-        </div>
-      ) : null}
 
       <div className="mt-4 overflow-auto rounded-xl border border-zinc-200 dark:border-zinc-800">
         <table className="min-w-[900px] text-left text-sm">
@@ -367,12 +232,6 @@ export default function PredictionsTable(props: {
             )}
           </tbody>
         </table>
-      </div>
-
-      <div className="mt-3 text-xs text-zinc-500 dark:text-zinc-400">
-        Upload CSV with columns: <span className="font-mono">schedule_key</span>{" "}
-        + the exact threshold header labels shown in the table (values are
-        0–100).
       </div>
     </div>
   );
