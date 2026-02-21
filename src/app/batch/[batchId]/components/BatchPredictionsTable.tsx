@@ -120,6 +120,7 @@ function sortNewestFirst(a: BatchPredictionRow, b: BatchPredictionRow) {
 export default function BatchPredictionsTable({
   flights,
   predictions,
+  aggregateRows,
   isLoading,
   thresholdsMinutes,
   refreshMetaText,
@@ -155,6 +156,17 @@ export default function BatchPredictionsTable({
     }
     return m;
   }, [predictions]);
+
+  const aggregateByScheduleKey = useMemo(() => {
+    const m = new Map<string, BatchPredictionRow>();
+    const rows = Array.isArray(aggregateRows) ? aggregateRows : [];
+    for (const p of rows) {
+      const key = (p.schedule_key ?? "").trim();
+      if (!key) continue;
+      m.set(key, p);
+    }
+    return m;
+  }, [aggregateRows]);
 
   const columns = useMemo(() => {
     return buildPartitionLabels(thresholdsMinutes);
@@ -259,7 +271,10 @@ export default function BatchPredictionsTable({
             ) : (
               flights.flatMap((f) => {
                 const key = (f.schedule_key ?? "").trim();
-                const p = key ? latestByScheduleKey.get(key) : undefined;
+                const p = key
+                  ? (aggregateByScheduleKey.get(key) ??
+                    latestByScheduleKey.get(key))
+                  : undefined;
                 const isOpen = !!(key && expanded[key]);
 
                 const summaryRow = (

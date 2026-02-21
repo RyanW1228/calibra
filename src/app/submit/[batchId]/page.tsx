@@ -1054,6 +1054,7 @@ export default function SubmitBatchPage() {
 
       const row = predByScheduleKey[key] ?? {};
       const probs: Record<string, number> = {};
+      let sumHundredths = 0;
 
       for (const [label, raw0] of Object.entries(row)) {
         const raw = (raw0 ?? "").trim();
@@ -1065,10 +1066,17 @@ export default function SubmitBatchPage() {
           return;
         }
 
-        probs[label] = Math.round(x * 100) / 100;
+        const xHundredths = Math.round(x * 100);
+        sumHundredths += xHundredths;
+        probs[label] = xHundredths / 100;
       }
 
       if (Object.keys(probs).length === 0) continue;
+
+      if (sumHundredths !== 10000) {
+        setUiError(`Probabilities for ${key} must add up to exactly 100.`);
+        return;
+      }
 
       payload.push({
         schedule_key: key,
@@ -1387,18 +1395,6 @@ export default function SubmitBatchPage() {
             onJoin={onJoin}
             isJoined={isJoined}
           />
-
-          {!isJoined ? (
-            <NoteBanner
-              title="How to enter predictions"
-              message="Enter values from 0–100 directly in the table. Joining is required before you can submit on-chain."
-            />
-          ) : (
-            <NoteBanner
-              title="How to enter predictions"
-              message="Enter values from 0–100 directly in the table."
-            />
-          )}
 
           {showClaimable ? (
             <ClaimableAuditCard
