@@ -87,6 +87,23 @@ function canonicalizePayload(input: unknown) {
   return rows;
 }
 
+async function nextCommitIndex(sb: any, batchId: string, provider: string) {
+  const { data, error } = await sb
+    .from("submission_versions")
+    .select("commit_index")
+    .eq("batch_id", batchId)
+    .eq("provider_address", provider)
+    .order("commit_index", { ascending: false })
+    .limit(1);
+
+  if (error) throw new Error(error.message);
+
+  const last =
+    Array.isArray(data) && data.length > 0 ? data[0]?.commit_index : null;
+  const lastNum = typeof last === "number" ? last : -1;
+  return lastNum + 1;
+}
+
 async function aesGcmEncrypt(plaintext: Uint8Array) {
   const keyB64 = process.env.CALIBRA_SUBMISSION_ENC_KEY_BASE64 ?? "";
   if (!keyB64) throw new Error("Missing CALIBRA_SUBMISSION_ENC_KEY_BASE64");
@@ -250,11 +267,41 @@ export async function POST(req: Request) {
       );
     }
 
-    const ins = await sb.from("submissions").insert({
+    const committedAtUnix = Math.floor(Date.now() / 1000);
+    const commitIndex = await nextCommitIndex(sb, batchId, address);
+
+    const insVersions = await sb.from("submission_versions").insert({
+      batch_id: batchId,
+      provider_address: address,
+      commit_index: commitIndex,
+
+      committed_at_unix: committedAtUnix,
+
+      revealed: false,
+      revealed_at_unix: null,
+
+      commit_hash: commitHash,
+      encrypted_uri_hash: encryptedUriHash,
+
+      root,
+      salt,
+      public_uri: `sb://${bucket}/${path}`,
+
+      payload_json: canonical,
+    });
+
+    if (insVersions.error) {
+      return NextResponse.json(
+        { ok: false, error: insVersions.error.message },
+        { status: 500 },
+      );
+    }
+
+    const insSubmissions = await sb.from("submissions").insert({
       batch_id: batchId,
       batch_id_hash: batchIdHash,
       provider_address: address,
-      commit_index: null,
+      commit_index: commitIndex,
       commit_hash: commitHash,
       root,
       salt,
@@ -263,9 +310,9 @@ export async function POST(req: Request) {
       encrypted_uri_hash: encryptedUriHash,
     });
 
-    if (ins.error) {
+    if (insSubmissions.error) {
       return NextResponse.json(
-        { ok: false, error: ins.error.message },
+        { ok: false, error: insSubmissions.error.message },
         { status: 500 },
       );
     }
