@@ -232,6 +232,10 @@ export default function PredictionsTable(props: {
             )}
           </tbody>
         </table>
+        <div className="mt-3 text-xs text-zinc-500 dark:text-zinc-400">
+          Enter probabilities as percentages (0–100). Values for each flight
+          must sum to exactly 100.
+        </div>
       </div>
     </div>
   );
